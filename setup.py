@@ -14,9 +14,10 @@ setup(
     ],
     entry_points={
         'console_scripts': [
-            # Classic prompt_toolkit CLI
-            'biju=biju.bijucli:main',
-            # New Textual TUI
+            # Classic prompt_toolkit CLI (fallback)
+            'biju-classic=biju.bijucli:main',
+            # New Textual TUI (main)
+            'biju=tui.app:main',
             'bijutui=tui.app:main',
         ],
     },

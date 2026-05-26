@@ -4,7 +4,7 @@ const { spawn } = require('child_process');
 const path = require('path');
 
 // Path to the python script inside the package
-const pythonScriptPath = path.join(__dirname, '../biju/bijucli.py');
+const pythonScriptPath = path.join(__dirname, '../tui/__main__.py');
 
 // Determine Python command depending on platform
 function getPythonCommand() {
