@@ -31,7 +31,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 # ── Version constants ─────────────────────────────────────────────────────────
-CURRENT_VERSION = "2.0.8"
+CURRENT_VERSION = "2.0.9"
 GITHUB_REPO     = "Prithish-22/open-source-cli"
 GITHUB_API_URL  = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 CACHE_FILE      = Path.home() / ".biju_update_cache.json"
