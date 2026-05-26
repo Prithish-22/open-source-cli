@@ -55,7 +55,7 @@ from tui.ui.output_panel import OutputPanel
 from tui.ui.permission_panel import PermissionPanel, PermissionRequest
 from tui.ui.popups import CommandPaletteModal, ModelSelectorModal, SessionBrowserModal
 from tui.ui.status_bar import StatusBar
-from tui.updater import check_for_updates, make_update_markup, CURRENT_VERSION
+from tui.updater import check_for_updates, make_update_markup, run_update_async, CURRENT_VERSION
 
 # ── Configuration file (shared with the classic CLI) ─────────────────────────
 CONFIG_FILE = Path.home() / ".biju_config.json"
@@ -246,6 +246,11 @@ class BijuTUI(App):
         elif cmd == "/model":
             await self.action_model_selector()
 
+        elif cmd == "/update":
+            out = self.query_one("#output", OutputPanel)
+            sb  = self.query_one("#statusbar", StatusBar)
+            # run_update_async handles progress display + restart
+            self.run_worker(run_update_async(out, sb), exclusive=True)
         elif cmd == "/save":
             await self.action_save_session()
 

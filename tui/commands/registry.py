@@ -23,6 +23,7 @@ COMMANDS: list[CommandDef] = [
     CommandDef("/help",      "Show this help menu",                         "/help"),
     CommandDef("/clear",     "Clear the chat history display",              "/clear",     ["/cls"]),
     CommandDef("/model",     "Open the interactive model selector",         "/model"),
+    CommandDef("/update",    "Update Biju to the latest version and restart", "/update"),
     CommandDef("/commands",  "List all available commands",                 "/commands"),
     CommandDef("/new",       "Start a fresh conversation",                  "/new"),
     CommandDef("/save",      "Save current session to disk",                "/save [title]"),

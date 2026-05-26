@@ -28,7 +28,7 @@ from prompt_toolkit.formatted_text import HTML
 
 # Update checker (imported lazily to avoid circular issues)
 try:
-    from tui.updater import check_for_updates, print_update_banner
+    from tui.updater import check_for_updates, print_update_banner, run_update_classic
     _HAS_UPDATER = True
 except ImportError:
     _HAS_UPDATER = False
@@ -156,6 +156,7 @@ COMMANDS = {
     "/model":      "Interactive menu to choose a different AI model",
     "/setkey":     "Add or change your API keys directly in the chat",
     "/undo":       "Restore the last file that Biju modified",
+    "/update":     "Update Biju to the latest version and restart automatically",
     "/queue":      "Manage prompt queue — add, list, clear, or run next",
     "/exit":       "Quit the CLI",
     "/quit":       "Quit the CLI",
@@ -1709,6 +1710,12 @@ What are we building or breaking today?
 
                 elif cmd == "/undo":
                     cmd_undo()
+
+                elif cmd == "/update":
+                    if _HAS_UPDATER:
+                        run_update_classic(console)
+                    else:
+                        console.print("[yellow]Updater not available. Run: git pull origin main[/yellow]")
 
                 elif cmd == "/history":
                     cmd_history(messages)
