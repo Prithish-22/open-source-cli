@@ -32,7 +32,7 @@ try:
     _biju_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     if _biju_root not in sys.path:
         sys.path.insert(0, _biju_root)
-    from tui.updater import check_for_updates, print_update_banner, run_update_classic, CURRENT_VERSION
+    from tui.updater import check_for_updates, print_update_banner, run_update_classic
     _HAS_UPDATER = True
 except Exception:
     _HAS_UPDATER = False
@@ -188,9 +188,37 @@ class SlashCommandCompleter(Completer):
 # --- UI LAYOUT FUNCTIONS ---
 def get_prompt_message():
     from prompt_toolkit.formatted_text import FormattedText
+    cwd  = os.getcwd()
+    home = os.path.expanduser("~")
+    if cwd.startswith(home):
+        cwd = cwd.replace(home, "~", 1)
+    width = shutil.get_terminal_size().columns
+    line  = "─" * width
     return FormattedText([
-        ("ansibrightmagenta bold", "biju"),
-        ("ansigray", " › "),
+        ("ansicyan",    cwd),
+        ("",           "\n"),
+        ("ansigray",    line),
+        ("",           "\n"),
+        ("bold ansimagenta", "❯"),
+        ("",           " "),
+    ])
+
+def get_bottom_toolbar():
+    from prompt_toolkit.formatted_text import FormattedText
+    width    = shutil.get_terminal_size().columns
+    ap_badge = " ⚡AUTOPILOT" if AUTOPILOT else ""
+    q_badge  = f" [{len(prompt_queue)} queued]" if prompt_queue else ""
+    ag_badge = f" [{len(RUNNING_AGENTS)} agent(s)]" if RUNNING_AGENTS else ""
+    left     = f"/ commands · Esc cancel{ap_badge}{q_badge}{ag_badge}"
+    right    = get_model_label(MODEL)
+    spaces   = max(1, width - len(left) - len(right))
+    line     = "─" * width
+    return FormattedText([
+        ("ansigray",  line),
+        ("",          "\n"),
+        ("ansigray",  left),
+        ("",          " " * spaces),
+        ("ansicyan",  right),
     ])
 
 ui_style = Style.from_dict({
@@ -198,6 +226,7 @@ ui_style = Style.from_dict({
     "completion-menu.completion.current": "bg:#16213e #ffffff bold",
     "completion-menu.meta.completion":    "bg:#1a1a2e #888888",
     "completion-menu.meta.completion.current": "bg:#16213e #aaaaaa",
+    "bottom-toolbar": "bg:#0f0f23 #666666",
     "prompt":         "bold",
 })
 
@@ -406,12 +435,18 @@ def run_command(cmd: str) -> str:
     """Execute a shell command with optional user approval."""
     global AUTOPILOT, ALLOW_ALL
     if not AUTOPILOT and not ALLOW_ALL:
-        console.print(f"\n⚠️  [bold yellow]Biju wants to run command:[/bold yellow]\n  [bold white]{cmd}[/bold white]\n")
-        approval = input("   Allow? [y/N]: ").strip().lower()
+        console.print(Panel(
+            f"[bold yellow]Biju wants to run:[/bold yellow]\n\n  [bold white]{cmd}[/bold white]",
+            border_style="yellow", title="[yellow]⚠ Command Approval[/yellow]", padding=(0, 1),
+        ))
+        approval = input("  Allow? [y/N]: ").strip().lower()
         if approval != "y":
             return "Command denied by user."
     else:
-        console.print(f"⚡ [bold magenta]Autopilot running:[/bold magenta] [bold white]{cmd}[/bold white]")
+        console.print(Panel(
+            f"[bold white]{cmd}[/bold white]",
+            border_style="magenta", title="[magenta]⚡ Autopilot[/magenta]", padding=(0, 1),
+        ))
 
     try:
         result = subprocess.run(
@@ -455,7 +490,13 @@ def write_file(filepath: str, content: str) -> str:
 
 # --- THINKING BLOCK RENDERER ---
 def render_thinking(thoughts: str):
-    console.print(f"🧠 [dim italic]Thinking: {thoughts.strip()}[/dim italic]\n")
+    console.print(Panel(
+        f"[dim italic]{thoughts.strip()}[/dim italic]",
+        title="[dim]🧠 Thinking[/dim]",
+        border_style="dim",
+        padding=(0, 1),
+        expand=False,
+    ))
 
 # --- TOOL CALL DISPLAY ---
 def render_tool_call(func_name: str, args: dict):
@@ -710,8 +751,10 @@ def chat_with_agent(user_input: str, messages: list) -> str | None:
         # ── Render response as Rich Markdown ──────────────────────────────
         if not has_tool_calls and clean_content:
             console.print()
+            console.print(Rule(characters="─", style="dim"))
+            console.print("[bold purple]🟣 Biju[/bold purple]")
             console.print(Markdown(clean_content))
-            console.print()
+            console.print(Rule(characters="─", style="dim"))
 
         # ── Save to message history & handle tool calls ───────────────────
         if has_tool_calls:
@@ -794,20 +837,42 @@ def run_with_esc_cancel(user_input: str, messages: list) -> str | None:
 # --- STARTUP SCREEN ---
 def print_startup_screen():
     os.system("cls" if os.name == "nt" else "clear")
-    console.print()
-    console.print("  [bold cyan]██████╗ ██╗     ██╗██╗   ██╗[/bold cyan]", justify="left")
-    console.print("  [bold cyan]██╔══██╗██║     ██║██║   ██║[/bold cyan]", justify="left")
-    console.print(f"  [bold cyan]██████╔╝██║     ██║██║   ██║[/bold cyan]  [bold white]Biju CLI[/bold white]  [dim]v{CURRENT_VERSION}[/dim]", justify="left")
-    console.print("  [bold magenta]██╔══██╗██║██   ██║██║   ██║[/bold magenta]  [dim]Autonomous AI Engineer[/dim]", justify="left")
-    console.print("  [bold magenta]██████╔╝██║╚█████╔╝╚██████╔╝[/bold magenta]  [dim]by Prithish[/dim]", justify="left")
-    console.print("  [dim]╚═════╝ ╚═╝ ╚════╝  ╚═════╝[/dim]", justify="left")
-    console.print()
+    width = shutil.get_terminal_size().columns
 
+    console.print()
+    console.print(Rule(style="cyan dim"))
+    console.print(
+        "  [bold cyan]██████╗ ██╗     ██╗██╗   ██╗[/bold cyan]",
+        justify="left",
+    )
+    console.print(
+        "  [bold cyan]██╔══██╗██║     ██║██║   ██║[/bold cyan]",
+        justify="left",
+    )
+    console.print(
+        "  [bold cyan]██████╔╝██║     ██║██║   ██║[/bold cyan]  [bold white]Biju CLI[/bold white]  [dim]v2.0[/dim]",
+        justify="left",
+    )
+    console.print(
+        "  [bold magenta]██╔══██╗██║██   ██║██║   ██║[/bold magenta]  [dim]Autonomous AI Engineer[/dim]",
+        justify="left",
+    )
+    console.print(
+        "  [bold magenta]██████╔╝██║╚█████╔╝╚██████╔╝[/bold magenta]  [dim]by Prithish[/dim]",
+        justify="left",
+    )
+    console.print(
+        "  [dim]╚═════╝ ╚═╝ ╚════╝  ╚═════╝[/dim]",
+        justify="left",
+    )
+    console.print(Rule(style="cyan dim"))
+
+    # Status dots
     has_instructions = os.path.exists(os.path.join(os.getcwd(), "biju-instructions.md"))
     instr_status = (
         "[bold green]●[/bold green] [dim]biju-instructions.md loaded[/dim]"
         if has_instructions
-        else "[bold yellow]●[/bold yellow] [dim]No instructions — run [bold]/init[/bold] to generate one[/dim]"
+        else "[bold yellow]●[/bold yellow] [dim]No biju-instructions.md — run [bold]/init[/bold] to generate one[/dim]"
     )
     console.print(f"  {instr_status}")
     console.print(f"  [bold blue]●[/bold blue] [dim]Model: [cyan]{get_model_label(MODEL)}[/cyan]  ·  Type [bold]/help[/bold] to see all commands[/dim]")
@@ -927,9 +992,10 @@ def cmd_queue(rest: str, messages: list):
             console.print(f"[bold cyan]▶ Running queued prompt:[/bold cyan] {next_prompt}\n")
             reply = run_with_esc_cancel(next_prompt, messages)
             if reply and reply.strip():
-                console.print()
+                console.print(Rule(characters="─", style="dim"))
+                console.print("[bold purple]🟣 Biju[/bold purple]")
                 console.print(Markdown(reply.strip()))
-                console.print()
+                console.print(Rule(characters="─", style="dim"))
         return
 
     # /queue add <text>  (or just /queue <text> with no subcommand keyword)
@@ -1478,9 +1544,11 @@ def cmd_ask(messages: list):
                 full += chunk.choices[0].delta.content
         clean = re.sub(r"<thinking>.*?</thinking>", "", full, flags=re.DOTALL).strip()
         console.print()
+        console.print(Rule(characters="─", style="dim"))
+        console.print("[bold purple]🟣 Biju[/bold purple]")
         if clean:
             console.print(Markdown(clean))
-        console.print()
+        console.print(Rule(characters="─", style="dim"))
     except Exception as e:
         console.print(f"[bold red]✗ Error:[/bold red] {e}")
 
@@ -1491,24 +1559,6 @@ def main():
     ensure_keys()
 
     # ── Start background update check before anything blocks the terminal ──
-    # Load cache instantly to display if there's an update immediately (zero wait time)
-    _cached_update = None
-    if _HAS_UPDATER:
-        try:
-            from tui.updater import _load_cache, UpdateResult, CURRENT_VERSION, _parse_version
-            cached = _load_cache()
-            if cached:
-                latest_tag, url = cached["latest"], cached["url"]
-                if _parse_version(latest_tag) > _parse_version(CURRENT_VERSION):
-                    res = UpdateResult()
-                    res.latest = latest_tag.lstrip("v")
-                    res.url = url
-                    res.has_update = True
-                    _cached_update = res
-        except Exception:
-            pass
-
-    # Start background check silently to cache latest updates for future sessions (doesn't block startup!)
     _update_result = _update_thread = None
     if _HAS_UPDATER:
         try:
@@ -1520,13 +1570,16 @@ def main():
         style=ui_style,
         completer=SlashCommandCompleter(),
         key_bindings=kb,
+        bottom_toolbar=get_bottom_toolbar,
     )
 
     print_startup_screen()
 
-    # Show update banner immediately if we had a cached update (no delay!)
-    if _cached_update:
-        print_update_banner(_cached_update)
+    # ── Show update banner if a newer version was found ──────────────────
+    if _update_result is not None and _update_thread is not None:
+        _update_thread.join(timeout=3)   # wait at most 3 s for network check
+        if _update_result.has_update:
+            print_update_banner(_update_result)
 
     current_date      = datetime.datetime.now().strftime("%B %d, %Y")
     home_directory    = os.path.expanduser("~")
@@ -1588,8 +1641,15 @@ What are we building or breaking today?
         try:
             user_input = session.prompt(get_prompt_message)
 
+            # Clear the prompt_toolkit input lines from terminal
+            sys.stdout.write("\033[F\033[K" * 3)
+            sys.stdout.flush()
+
             if not user_input.strip():
                 continue
+
+            # Echo user input
+            console.print(f"[bold magenta]❯[/bold magenta] [bold]{user_input}[/bold]\n")
 
             # --- SLASH COMMAND ROUTING ---
             if user_input.strip().startswith("/"):
@@ -1614,7 +1674,9 @@ What are we building or breaking today?
                     cmd = cmd_input
 
                 if cmd in ("/exit", "/quit"):
-                    console.print("[bold purple]Goodbye! 👋[/bold purple]")
+                    console.print(Rule(style="purple"))
+                    console.print("[bold purple]  Goodbye! 👋  See you next time.[/bold purple]")
+                    console.print(Rule(style="purple"))
                     break
 
                 elif cmd == "/clear":

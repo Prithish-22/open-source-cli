@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='biju-cli',
-    version='2.0.8',
+    version='2.0.0',
     description='An advanced AI CLI + TUI developed by Prithish',
     author='Prithish',
     packages=find_packages(),
@@ -14,11 +14,10 @@ setup(
     ],
     entry_points={
         'console_scripts': [
-            # Classic prompt_toolkit CLI (fallback)
-            'biju-classic=biju.bijucli:main',
-            # New Textual TUI (main)
-            'biju=tui.app:main',
+            # Classic prompt_toolkit CLI
+            'biju=biju.bijucli:main',
+            # New Textual TUI
             'bijutui=tui.app:main',
         ],
     },
-)
+)
