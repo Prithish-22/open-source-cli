@@ -34,7 +34,7 @@ class MessageBubble(Widget):
         if self.role == "user":
             # biju › hi
             return Text.assemble(
-                ("biju › ", "ansibrightmagenta bold"),
+                ("biju › ", "bright_magenta bold"),
                 (self.content, "white bold")
             )
         elif self.role == "assistant":
