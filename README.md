@@ -74,6 +74,8 @@ Biju CLI utilizes the high-speed **NVIDIA NIM API** which provides access to sta
 
 *Note: New accounts receive 1,000 free credits, which is more than enough for thousands of code generations and agent executions!*
 
+![NVIDIA Key Retrieval Guide](./assets/nvidia_key_guide.png)
+
 ---
 
 ## 🚀 Installation & Setup
