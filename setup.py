@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='biju-cli',
-    version='3.1.0',
+    version='3.1.1',
     description='An advanced AI CLI + TUI developed by Prithish',
     author='Prithish',
     packages=find_packages(),
