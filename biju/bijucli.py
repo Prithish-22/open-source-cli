@@ -26,6 +26,13 @@ from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.formatted_text import HTML
 
+# Update checker (imported lazily to avoid circular issues)
+try:
+    from tui.updater import check_for_updates, print_update_banner
+    _HAS_UPDATER = True
+except ImportError:
+    _HAS_UPDATER = False
+
 console = Console()
 CONFIG_FILE = os.path.expanduser("~/.biju_config.json")
 BACKUP_DIR  = os.path.expanduser("~/.biju_backups")
@@ -1546,6 +1553,14 @@ def main():
     global AUTOPILOT, MODEL, ALLOW_ALL
     ensure_keys()
 
+    # ── Start background update check before anything blocks the terminal ──
+    _update_result = _update_thread = None
+    if _HAS_UPDATER:
+        try:
+            _update_result, _update_thread = check_for_updates()
+        except Exception:
+            pass
+
     session = PromptSession(
         style=ui_style,
         completer=SlashCommandCompleter(),
@@ -1554,6 +1569,12 @@ def main():
     )
 
     print_startup_screen()
+
+    # ── Show update banner if a newer version was found ──────────────────
+    if _update_result is not None and _update_thread is not None:
+        _update_thread.join(timeout=3)   # wait at most 3 s for network check
+        if _update_result.has_update:
+            print_update_banner(_update_result)
 
     current_date      = datetime.datetime.now().strftime("%B %d, %Y")
     home_directory    = os.path.expanduser("~")

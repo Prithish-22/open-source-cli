@@ -55,6 +55,7 @@ from tui.ui.output_panel import OutputPanel
 from tui.ui.permission_panel import PermissionPanel, PermissionRequest
 from tui.ui.popups import CommandPaletteModal, ModelSelectorModal, SessionBrowserModal
 from tui.ui.status_bar import StatusBar
+from tui.updater import check_for_updates, make_update_markup, CURRENT_VERSION
 
 # ── Configuration file (shared with the classic CLI) ─────────────────────────
 CONFIG_FILE = Path.home() / ".biju_config.json"
@@ -172,6 +173,9 @@ class BijuTUI(App):
         # and wait for a Future to be resolved by the user's button click.
         self._permission_future: asyncio.Future | None = None
 
+        # ── Update checker ─────────────────────────────────────────────────
+        self._update_result, self._update_thread = check_for_updates()
+
         # ── System prompt ──────────────────────────────────────────────────
         self._system_prompt = self._build_system_prompt()
 
@@ -185,6 +189,9 @@ class BijuTUI(App):
 
     def on_mount(self) -> None:
         self._refresh_status_bar()
+        # Schedule an update notification check 4 seconds after startup
+        # (gives the background thread time to finish the network request)
+        self.set_timer(4, self._show_update_notification)
 
     # ── Input handler ─────────────────────────────────────────────────────────
 
@@ -689,6 +696,19 @@ class BijuTUI(App):
             sb.set_autopilot(self._autopilot)
         except Exception:
             pass
+
+    def _show_update_notification(self) -> None:
+        """Called ~4 s after startup; shows an update banner if one is available."""
+        if self._update_thread.is_alive():
+            # Thread not done yet — check again in 2 more seconds
+            self.set_timer(2, self._show_update_notification)
+            return
+        if self._update_result.has_update:
+            try:
+                out = self.query_one("#output", OutputPanel)
+                out.add_tool_event(make_update_markup(self._update_result))
+            except Exception:
+                pass
 
     # ── Slash command helpers ─────────────────────────────────────────────
 
