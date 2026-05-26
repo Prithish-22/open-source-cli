@@ -117,6 +117,21 @@ Once the CLI starts, you can set your key directly inside the interactive consol
    ```
 3. Press **Enter**. You are all set! Biju CLI is ready to work.
 
+### 🗑️ How to Uninstall / Delete Biju CLI
+If you ever want to completely remove Biju CLI from your system, simply run the command corresponding to how you installed it:
+
+* **If installed via NPM:**
+  ```bash
+  npm uninstall -g biju-cli
+  ```
+* **If installed via Pip:**
+  ```bash
+  pip uninstall biju-cli
+  ```
+* **If installed via Direct Local Dev:**
+  * For NPM: Open the project folder in terminal and run: `npm unlink`
+  * For Pip: Run `pip uninstall biju-cli`
+
 ---
 
 ## 🛠️ Usage & Commands
