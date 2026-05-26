@@ -1,6 +1,8 @@
 # 🤖 Biju CLI (v2.0)
 > **An Autonomous AI Software Engineer in Your Terminal**
 
+Developed by **[Prithish Raj T](https://github.com/Prithish-22)** 🚀
+
 [![npm version](https://img.shields.io/npm/v/biju-cli.svg?style=flat-square)](https://www.npmjs.com/package/biju-cli)
 [![license](https://img.shields.io/github/license/Prithish-22/open-source-cli.svg?style=flat-square)](https://github.com/Prithish-22/open-source-cli/blob/main/LICENSE)
 
@@ -9,7 +11,30 @@
 npm install -g biju-cli
 ```
 
-Biju CLI is a **100% Free, Fully Open Source**, and premium Command Line Interface that transforms your terminal into an interactive AI workspace. Powered by NVIDIA’s high-performance NIM APIs and featuring dedicated background-running AI agents, Biju CLI handles web research, code generation, testing, and git operations autonomously while you work.
+---
+
+### 📷 Preview
+
+| Biju CLI Console | Interactive Model Selector |
+| :---: | :---: |
+| ![Biju CLI Terminal Intro](./assets/terminal_intro.png) | ![Biju CLI Model Selector](./assets/model_selector.png) |
+
+---
+
+### 🎯 Why Biju CLI? (Our Purpose)
+Most AI CLIs are frustrating—they force you into paid subscriptions, place strict limits, or try to bypass your own API integrations. 
+
+**Biju CLI was created to change that!** It is **100% free and fully open-source**, built so you can plug in **your own API keys** and start building immediately.
+* **NVIDIA NIM API:** Fully supported (Free and Paid tiers).
+* **DeepSeek API:** Supported (Paid/External keys).
+* **Moonshot (Kimi) API:** Supported (Paid/External keys).
+
+### 🛠️ Active Daily Development
+Biju CLI is under **active daily development**. New features, model updates, background capabilities, and bug fixes are being added continuously to give you the most state-of-the-art terminal AI engineering assistant possible!
+
+---
+
+Biju CLI is a premium, state-of-the-art Command Line Interface that transforms your terminal into an interactive AI workspace. Powered by high-performance AI APIs and featuring dedicated background-running AI agents, Biju CLI handles web research, code generation, testing, and git operations autonomously while you work.
 
 ---
 
