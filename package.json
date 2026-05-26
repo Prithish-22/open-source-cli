@@ -1,0 +1,25 @@
+{
+  "name": "biju-cli",
+  "version": "2.0.0",
+  "description": "An Autonomous AI Software Engineer in Your Terminal",
+  "main": "bin/index.js",
+  "bin": {
+    "biju": "./bin/index.js"
+  },
+  "scripts": {
+    "postinstall": "python -m pip install rich prompt_toolkit openai || python3 -m pip install rich prompt_toolkit openai || pip install rich prompt_toolkit openai || pip3 install rich prompt_toolkit openai"
+  },
+  "keywords": [
+    "ai",
+    "cli",
+    "agent",
+    "nvidia",
+    "autonomous",
+    "python"
+  ],
+  "author": "Prithish",
+  "license": "MIT",
+  "engines": {
+    "node": ">=12.0.0"
+  }
+}

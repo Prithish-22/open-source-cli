@@ -42,23 +42,30 @@ Biju CLI utilizes the high-speed **NVIDIA NIM API** which provides access to sta
 ## 🚀 Installation & Setup
 
 ### 1. Install Biju CLI Globally
-Since Biju is built on Python, you can install it globally using `pip`. 
+
+You can install Biju CLI globally using either **NPM** (recommended) or **Pip**.
+
+#### Option A: Install via NPM (Recommended)
+You can install Biju CLI globally with a single command via npm:
+```bash
+npm install -g biju-cli
+```
+
+#### Option B: Install via Pip (Python)
+If you prefer standard Python package installation:
+```bash
+pip install biju-cli
+```
 
 #### Direct Local Installation (for development/use)
 1. Clone this repository or navigate to your downloaded project directory.
-2. Install it in editable/global mode:
-   ```bash
-   pip install -e .
-   ```
+2. Install it locally:
+   * Using NPM: `npm link`
+   * Using Pip: `pip install -e .`
 3. Launch the CLI from anywhere in your terminal:
    ```bash
    biju
    ```
-
-#### Installing from PyPI (Once published)
-```bash
-pip install biju-cli
-```
 
 ### 2. Configure Your API Key (One-time Setup)
 Once the CLI starts, you can set your key directly inside the interactive console. It will be stored securely on your local machine so you don't have to enter it again!
@@ -95,28 +102,43 @@ Launch the interactive console by typing `biju`. Inside the console, you can use
 
 ---
 
-## 📦 How to Publish Biju CLI to PyPI
+## 📦 How to Publish Biju CLI
 
-To publish your package to PyPI so anyone in the world can run `pip install biju-cli`, run:
+You can publish Biju CLI to **NPM** and/or **PyPI** so anyone can install it!
 
-### Step 1: Install Publishing Tools
-```bash
-pip install --upgrade setuptools wheel twine
-```
-
-### Step 2: Build the Package Distribution
-```bash
-python setup.py sdist bdist_wheel
-```
-
-### Step 3: Upload to PyPI
-1. Create a developer account on [PyPI](https://pypi.org/).
-2. Create an API Token on your account settings page.
-3. Upload the package:
+### Option A: Publish to NPM (Recommended for easy installs)
+1. **Register a free account** on [NPM](https://www.npmjs.com/).
+2. Open your terminal in the root folder of Biju CLI and log in:
    ```bash
-   python -m twine upload dist/*
+   npm login
    ```
-   *(Enter `__token__` as the username, and paste your PyPI API token as the password).*
+3. Publish your package globally to the NPM registry:
+   ```bash
+   npm publish --access public
+   ```
+   *That's it! Anyone in the world can now run `npm install -g biju-cli`.*
+
+---
+
+### Option B: Publish to PyPI (Python Package Index)
+To make your package installable via `pip install biju-cli`:
+
+1. **Install Python Build Tools:**
+   ```bash
+   pip install --upgrade setuptools wheel twine
+   ```
+2. **Build Your Package:**
+   ```bash
+   python setup.py sdist bdist_wheel
+   ```
+3. **Upload to PyPI:**
+   * Create a developer account on [PyPI](https://pypi.org/).
+   * Generate an **API Token** from your Account Settings page.
+   * Upload using twine:
+     ```bash
+     python -m twine upload dist/*
+     ```
+     *(Use `__token__` as the username, and paste your PyPI API token as the password).*
 
 ---
 
