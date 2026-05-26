@@ -1552,9 +1552,16 @@ def cmd_agent(rest: str) -> None:
 
         chosen = AGENT_DEFINITIONS[chosen_idx]
         console.print(f"\n[bold {chosen['color']}]{chosen['icon']} {chosen['name']}[/bold {chosen['color']}] selected.")
-        task = input("  What should this agent do? > ").strip()
+        console.print("[dim]  Describe the task (Esc or empty to cancel):[/dim]")
+        # Use PromptSession so Esc returns an empty string instead of crashing
+        try:
+            from prompt_toolkit import PromptSession as _PS
+            _task_session = _PS()
+            task = _task_session.prompt("  ➤ ").strip()
+        except (KeyboardInterrupt, EOFError):
+            task = ""
         if not task:
-            console.print("[dim]Cancelled — no task given.[/dim]")
+            console.print("[dim]Cancelled — back to chat.[/dim]")
             return
         _spawn_agent(chosen, task)
         return
@@ -1818,9 +1825,13 @@ What are we building or breaking today?
 
                 elif cmd == "/model":
                     selected = interactive_model_selector(MODEL)
+                    # Clear the menu residue without jumping to the top
+                    sys.stdout.write("\033[1A\033[2K" * 2)
+                    sys.stdout.flush()
                     if selected:
                         MODEL = selected
-                        console.print(f"[bold green]✓ Switched to [cyan]{MODEL.split('/')[-1]}[/cyan][/bold green]")
+                        label = MODEL.split("/")[-1]
+                        console.print(f"[bold green]✓ Model → [cyan]{label}[/cyan][/bold green]")
                     else:
                         console.print("[dim]Model switch cancelled.[/dim]")
 
