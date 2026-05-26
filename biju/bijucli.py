@@ -794,16 +794,23 @@ def run_with_esc_cancel(user_input: str, messages: list) -> str | None:
 # --- STARTUP SCREEN ---
 def print_startup_screen():
     os.system("cls" if os.name == "nt" else "clear")
+    console.print()
+    console.print("  [bold cyan]██████╗ ██╗     ██╗██╗   ██╗[/bold cyan]", justify="left")
+    console.print("  [bold cyan]██╔══██╗██║     ██║██║   ██║[/bold cyan]", justify="left")
+    console.print(f"  [bold cyan]██████╔╝██║     ██║██║   ██║[/bold cyan]  [bold white]Biju CLI[/bold white]  [dim]v{CURRENT_VERSION}[/dim]", justify="left")
+    console.print("  [bold magenta]██╔══██╗██║██   ██║██║   ██║[/bold magenta]  [dim]Autonomous AI Engineer[/dim]", justify="left")
+    console.print("  [bold magenta]██████╔╝██║╚█████╔╝╚██████╔╝[/bold magenta]  [dim]by Prithish[/dim]", justify="left")
+    console.print("  [dim]╚═════╝ ╚═╝ ╚════╝  ╚═════╝[/dim]", justify="left")
+    console.print()
+
     has_instructions = os.path.exists(os.path.join(os.getcwd(), "biju-instructions.md"))
     instr_status = (
         "[bold green]●[/bold green] [dim]biju-instructions.md loaded[/dim]"
         if has_instructions
-        else "[bold yellow]●[/bold yellow] [dim]No instructions ([bold]/init[/bold] to create)[/dim]"
+        else "[bold yellow]●[/bold yellow] [dim]No instructions — run [bold]/init[/bold] to generate one[/dim]"
     )
-    console.print()
-    console.print(f"[bold cyan]Biju CLI[/bold cyan] [dim]v{CURRENT_VERSION} · Autonomous AI Engineer by Prithish[/dim]")
-    console.print(f"  {instr_status}   [bold blue]●[/bold blue] [dim]Model: [cyan]{get_model_label(MODEL)}[/cyan][/dim]")
-    console.print(f"  [dim]Type [bold cyan]/help[/bold cyan] for commands, [bold cyan]/exit[/bold cyan] to quit.[/dim]")
+    console.print(f"  {instr_status}")
+    console.print(f"  [bold blue]●[/bold blue] [dim]Model: [cyan]{get_model_label(MODEL)}[/cyan]  ·  Type [bold]/help[/bold] to see all commands[/dim]")
     console.print()
 
 # --- SLASH COMMAND HANDLERS ---
@@ -1484,6 +1491,24 @@ def main():
     ensure_keys()
 
     # ── Start background update check before anything blocks the terminal ──
+    # Load cache instantly to display if there's an update immediately (zero wait time)
+    _cached_update = None
+    if _HAS_UPDATER:
+        try:
+            from tui.updater import _load_cache, UpdateResult, CURRENT_VERSION, _parse_version
+            cached = _load_cache()
+            if cached:
+                latest_tag, url = cached["latest"], cached["url"]
+                if _parse_version(latest_tag) > _parse_version(CURRENT_VERSION):
+                    res = UpdateResult()
+                    res.latest = latest_tag.lstrip("v")
+                    res.url = url
+                    res.has_update = True
+                    _cached_update = res
+        except Exception:
+            pass
+
+    # Start background check silently to cache latest updates for future sessions (doesn't block startup!)
     _update_result = _update_thread = None
     if _HAS_UPDATER:
         try:
@@ -1499,11 +1524,9 @@ def main():
 
     print_startup_screen()
 
-    # ── Show update banner if a newer version was found ──────────────────
-    if _update_result is not None and _update_thread is not None:
-        _update_thread.join(timeout=3)   # wait at most 3 s for network check
-        if _update_result.has_update:
-            print_update_banner(_update_result)
+    # Show update banner immediately if we had a cached update (no delay!)
+    if _cached_update:
+        print_update_banner(_cached_update)
 
     current_date      = datetime.datetime.now().strftime("%B %d, %Y")
     home_directory    = os.path.expanduser("~")
