@@ -1,4 +1,4 @@
-# 🤖 Biju CLI + TUI (v2.0)
+# 🤖 Biju CLI + TUI (v3.1)
 > **An Autonomous AI Software Engineer in Your Terminal**
 
 Developed by **[Prithish Raj T](https://github.com/Prithish-22)** 🚀
@@ -17,9 +17,9 @@ Biju is a **100% free, open-source** autonomous AI terminal engineer. Plug in yo
 ## ✨ Two Interfaces, One CLI
 
 ### 1. 🖥️ Classic CLI — `biju`
-The original `prompt_toolkit` + `rich` powered interface. Lightweight, fast, works in any terminal.
+The original `prompt_toolkit` + `rich` powered interface. Lightweight, fast, works in any terminal. Supports background agents, prompt queues, and live token streaming.
 
-### 2. 🎨 TUI (Terminal UI) — `bijutui` *(New in v2.0!)*
+### 2. 🎨 TUI (Terminal UI) — `bijutui` *(v2.0+)*
 A modern, full-screen **Textual**-powered terminal UI — inspired by Claude Code, Warp Terminal, and Gemini CLI.
 
 ```
@@ -127,7 +127,7 @@ Works in both `biju` (classic) and `bijutui` (TUI):
 
 | Command | Description |
 |---------|-------------|
-| `/help` | Show help menu |
+| `/help` | Show help menu with all commands, tools, and agents |
 | `/model` | Interactive model selector (30+ models) |
 | `/clear` | Clear the screen / chat |
 | `/new` | Start a fresh conversation |
@@ -136,32 +136,129 @@ Works in both `biju` (classic) and `bijutui` (TUI):
 | `/history` | Show message count and token estimate |
 | `/autopilot` | Toggle autopilot (skip all approval prompts) |
 | `/allow-all` | Enable full autonomy mode |
+| `/add-dir <path>` | Add a trusted directory Biju can read/write |
 | `/init` | Create `biju-instructions.md` for this repo |
 | `/setkey` | Add or update API keys |
 | `/undo` | Restore the last file Biju modified |
 | `/agent <task>` | Spawn a background AI agent *(Classic CLI only)* |
+| `/queue add <prompt>` | Queue a prompt to run automatically |
+| `/changelog` | View version history |
 | `/exit` | Quit |
+
+---
+
+## 🔧 AI Tools (v3.1)
+
+Biju v3.1 gives the AI **10 first-class tools** — used automatically based on the task:
+
+| Tool | Icon | Description |
+|------|------|-------------|
+| `run_command` | ⚙ | Execute shell commands (with safety gating) |
+| `read_file` | 📄 | Read a file with line numbers |
+| `write_file` | ✏ | Create **new** files |
+| `edit_file` | 🔧 | **Patch exact text** in existing files (shows diff preview) |
+| `list_dir` | 📂 | Tree-formatted directory listing (replaces ls/dir) |
+| `search_in_files` | 🔍 | Search text/regex across files (replaces grep/findstr) |
+| `read_file_range` | 📄 | Read specific line range from a file |
+| `git_status` | 🌿 | Show git branch and status |
+| `git_diff` | 🌿 | Show git diff (working tree or staged) |
+| `git_log` | 🌿 | Show recent git commit history |
+
+### Edit File with Diff Preview
+The `edit_file` tool replaces exact text matches and **always shows a diff before applying**:
+
+```
+--- Diff Preview (starting at line 12) ---
+--- a/utils.py
++++ b/utils.py
+-def greet(name):
+-    print("Hello " + name)
++def greet(name: str) -> None:
++    print(f"Hello, {name}!")
+
+✅ Applied edit to utils.py — replaced 2 line(s) with 2 line(s).
+```
+
+### Safety Guardrails
+Biju automatically detects **destructive commands** and requires explicit confirmation even in autopilot:
+
+```
+🛑 DESTRUCTIVE COMMAND DETECTED
+
+  rm -rf ./build
+
+  Risk: Permanently deletes files
+
+This is destructive. Are you sure? [y/N]:
+```
+
+Detected patterns include: `rm`, `del`, `rmdir`, `git reset --hard`, `git clean -f`, `git push --force`, `format`, `mkfs`, `DROP TABLE`.
+
+### Trusted Directory Policy
+By default, Biju gates file writes to the **current working directory** only. To allow writes elsewhere:
+
+```bash
+# In Biju:
+/add-dir /path/to/project    # Add a trusted directory
+/allow-all                    # OR disable all restrictions
+```
 
 ---
 
 ## 🤖 Background Agents *(Classic CLI)*
 
-Spawn specialized agents that run in the background while you keep chatting:
+Spawn specialized agents that run in the **background** while you keep chatting:
 
 ```
-❯ /agent write unit tests for setup.py
-❯ /agent search the web and summarize Python 3.13 changes
-❯ /agent clean up duplicate methods in main.py
+❯ /agent
+# Interactive launcher — choose an agent with ↑/↓, press Enter to spawn
 ```
 
-| Agent | Best For |
-|-------|----------|
-| 🔎 Researcher | Web search, summarization |
-| 💻 Coder | Code writing and refactoring |
-| 🌿 Git Agent | Commits, diffs, PRs |
-| 📁 File Agent | Batch file operations |
-| 🧪 Test Runner | Run tests, fix failures in a loop |
-| ⚡ Shell Agent | Autonomous shell task execution |
+### All 10 Agents
+
+| Agent | Icon | Best For |
+|-------|------|----------|
+| 🔎 Researcher | | Web search, URL fetching, summarization |
+| 💻 Coder | | Code writing, refactoring, bug fixing |
+| 🌿 Git Agent | | Commits, diffs, PRs, branch management |
+| 📁 File Agent | | Batch file operations, rename, move |
+| 🧪 Test Runner | | Run tests, read failures, apply fixes in a loop |
+| ⚡ Shell Agent | | Autonomous shell task execution |
+| 🧐 Repo Scout | | **Map the codebase** — tree, key files, dependencies, git history |
+| 🩹 Patch Editor | | **Precise code edits** using `edit_file` with diff previews |
+| 📈 Reviewer | | **Code review** — bugs, risks, style, verdict |
+| 🔐 Security Guard | | **Security scan** — secrets, injection, XSS, weak crypto |
+
+### Agent Commands
+```bash
+/agent               # Show interactive launcher + status of running agents
+/agent status        # List all running agents
+/agent stop <name>   # Kill a named agent
+```
+
+### Example Workflows
+```bash
+# Map a new codebase before diving in
+❯ /agent
+# Select: 🧐 Repo Scout
+# Task: map this project
+
+# Review your staged changes
+❯ /agent
+# Select: 📈 Reviewer  
+# Task: review all staged changes
+
+# Security scan before deploying
+❯ /agent
+# Select: 🔐 Security Guard
+# Task: scan the entire codebase for vulnerabilities
+```
+
+### Repo Context Priming
+On startup, Biju automatically builds a **repo summary** (directory tree + key config files) and injects it into the AI's system prompt — so the AI understands your project from the first message.
+
+### Conversation Summarization
+When conversations get long (>10 user turns), Biju automatically **compresses older messages** to stay within context limits while preserving the most recent context.
 
 ---
 
@@ -182,7 +279,9 @@ Spawn specialized agents that run in the background while you keep chatting:
 ```
 open-source-cli/
 ├── biju/
-│   └── bijucli.py          # Classic CLI (prompt_toolkit + rich)
+│   ├── bijucli.py          # Classic CLI (prompt_toolkit + rich)
+│   ├── tool_defs.py        # All 10 tool schemas (single source of truth)
+│   └── tools.py            # All tool implementations (shared CLI + TUI)
 ├── tui/
 │   ├── app.py              # Main Textual TUI application
 │   ├── models/config.py    # Model catalog
@@ -194,8 +293,27 @@ open-source-cli/
 │       ├── permission_panel.py # Tool approval panel
 │       ├── status_bar.py      # Always-visible status bar
 │       └── popups.py          # Command palette, model selector
+├── tests/
+│   ├── test_tools.py       # 55 unit tests for tool implementations
+│   └── test_tool_defs.py   # 8 schema validation tests
 ├── setup.py                # Package config (biju + bijutui entry points)
 └── biju_tui.py             # Standalone TUI launcher
+```
+
+### Key Architecture Notes
+- **`biju/tool_defs.py`** — single source of truth for all tool schemas; both CLI and TUI import from here
+- **`biju/tools.py`** — all tool implementations shared between CLI and TUI (no duplication)
+- Agents in the classic CLI use all 10 tools automatically
+
+---
+
+## 🧪 Running Tests
+
+```bash
+cd open-source-cli
+pip install pytest
+python -m pytest tests/ -v
+# → 63 tests, all passing
 ```
 
 ---

@@ -35,6 +35,7 @@ COMMANDS: list[CommandDef] = [
     CommandDef("/setkey",    "Add or update API keys",                      "/setkey"),
     CommandDef("/config",    "Reset / delete saved configuration",          "/config"),
     CommandDef("/undo",      "Restore last file Biju modified",             "/undo"),
+    CommandDef("/add-dir",   "Add a trusted directory for Biju",            "/add-dir"),
     CommandDef("/exit",      "Quit the TUI",                               "/exit",      ["/quit"]),
 ]
 

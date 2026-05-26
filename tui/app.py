@@ -60,58 +60,16 @@ from tui.updater import check_for_updates, make_update_markup, run_update_async,
 # ── Configuration file (shared with the classic CLI) ─────────────────────────
 CONFIG_FILE = Path.home() / ".biju_config.json"
 
-# ── Tool definitions sent to the API ─────────────────────────────────────────
-TOOLS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "run_command",
-            "description": (
-                "Execute a shell/terminal command on the user's OS and return its "
-                "full output including exit code, stdout, and stderr."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "command": {"type": "string", "description": "The exact shell command to execute."}
-                },
-                "required": ["command"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "read_file",
-            "description": "Read the full contents of a file with line numbers.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "filepath": {"type": "string", "description": "Absolute or relative path."}
-                },
-                "required": ["filepath"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "write_file",
-            "description": "Write or overwrite a file with new content.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "filepath": {"type": "string"},
-                    "content": {"type": "string"},
-                },
-                "required": ["filepath", "content"],
-            },
-        },
-    },
-]
-
-# ── Tools that require permission ─────────────────────────────────────────────
-PERMISSION_REQUIRED = {"run_command", "write_file"}
+# ── Tool definitions & permission sets (shared with the classic CLI) ──────────
+from biju.tool_defs import TOOL_SCHEMAS as TOOLS, ALL_TOOL_NAMES, PERMISSION_REQUIRED, READ_ONLY_TOOLS
+from biju.tools import (
+    dispatch_tool,
+    check_trusted_dir,
+    is_destructive_command,
+    build_repo_context,
+    summarize_conversation,
+    get_file_backups,
+)
 
 
 class BijuTUI(App):
@@ -164,7 +122,7 @@ class BijuTUI(App):
         self._messages: list[dict] = []
         self._autopilot: bool = False
         self._allow_all: bool = False
-        self._file_backups: dict[str, str] = {}
+        self._file_backups: dict[str, str] = get_file_backups()
         self._generating: bool = False
         self._cancel_event = asyncio.Event()
 
@@ -344,6 +302,9 @@ class BijuTUI(App):
             # Build messages with system prompt prepended
             msgs = [{"role": "system", "content": self._system_prompt}] + self._messages
 
+            # Compress long conversations to stay within context limits
+            msgs = summarize_conversation(msgs)
+
             # ── Stream from API ───────────────────────────────────────────
             try:
                 client = self._get_async_client()
@@ -492,28 +453,70 @@ class BijuTUI(App):
         sb: StatusBar,
     ) -> str:
         """Execute a tool, requesting permission if needed."""
-        icons = {"run_command": "⚙", "read_file": "📄", "write_file": "✏"}
+        icons = {
+            "run_command": "⚙", "read_file": "📄", "write_file": "✏",
+            "edit_file": "🔧", "list_dir": "📂", "search_in_files": "🔍",
+            "read_file_range": "📄", "git_status": "🌿", "git_diff": "🌿",
+            "git_log": "🌿",
+        }
         icon = icons.get(func_name, "🔧")
 
         # ── Show what we're about to do ───────────────────────────────────
         if func_name == "run_command":
             detail = args.get("command", "")
             event_text = f"{icon} **Run Command**: `{detail}`"
-        elif func_name == "read_file":
+        elif func_name in ("read_file", "read_file_range", "write_file", "edit_file"):
             detail = args.get("filepath", "")
-            event_text = f"{icon} **Read File**: `{detail}`"
-        elif func_name == "write_file":
-            detail = args.get("filepath", "")
-            event_text = f"{icon} **Write File**: `{detail}`"
+            labels = {
+                "read_file": "Read File", "read_file_range": "Read File Range",
+                "write_file": "Write File", "edit_file": "Edit File",
+            }
+            event_text = f"{icon} **{labels[func_name]}**: `{detail}`"
+        elif func_name == "list_dir":
+            detail = args.get("path", ".")
+            event_text = f"{icon} **List Directory**: `{detail}`"
+        elif func_name == "search_in_files":
+            detail = args.get("query", "")
+            event_text = f"{icon} **Search**: `{detail}`"
+        elif func_name in ("git_status", "git_diff", "git_log"):
+            detail = ""
+            event_text = f"{icon} **{func_name.replace('_', ' ').title()}**"
         else:
             detail = ""
             event_text = f"{icon} **{func_name}**"
 
+        # ── Trusted-dir enforcement for file-writing tools ────────────────
+        if func_name in ("write_file", "edit_file") and not self._allow_all:
+            filepath = args.get("filepath", "")
+            if filepath:
+                config = self._load_config()
+                trusted_dirs = config.get("trusted_dirs", [])
+                allowed, reason = check_trusted_dir(
+                    filepath, trusted_dirs, os.getcwd(), self._allow_all,
+                )
+                if not allowed:
+                    out.add_tool_event(f"🚫 Blocked: {reason}")
+                    return f"Blocked: {reason}"
+
+        # ── Destructive command safety ────────────────────────────────────
+        force_permission = False
+        if func_name == "run_command":
+            cmd = args.get("command", "")
+            destructive, desc = is_destructive_command(cmd)
+            if destructive and not self._allow_all:
+                force_permission = True
+                out.add_tool_event(f"⚠ Destructive command detected: {desc}")
+
         # ── Permission gate ───────────────────────────────────────────────
-        if func_name in PERMISSION_REQUIRED and not self._autopilot and not self._allow_all:
+        needs_permission = (
+            func_name in PERMISSION_REQUIRED and not self._autopilot and not self._allow_all
+        ) or force_permission
+
+        if needs_permission:
             tool_labels = {
                 "run_command": "Shell Executor",
                 "write_file":  "File Editor",
+                "edit_file":   "File Editor",
             }
             req = PermissionRequest(
                 tool=tool_labels.get(func_name, func_name),
@@ -548,12 +551,9 @@ class BijuTUI(App):
 
         if func_name == "run_command":
             return await self._tool_run_command(args.get("command", ""))
-        elif func_name == "read_file":
-            return self._tool_read_file(args.get("filepath", ""))
-        elif func_name == "write_file":
-            return self._tool_write_file(args.get("filepath", ""), args.get("content", ""))
         else:
-            return f"Unknown tool: {func_name}"
+            # All other tools use the shared synchronous dispatcher
+            return dispatch_tool(func_name, args)
 
     # ── Tool implementations ──────────────────────────────────────────────────
 
@@ -576,25 +576,7 @@ class BijuTUI(App):
         except Exception as e:
             return f"Error executing command: {e}"
 
-    def _tool_read_file(self, filepath: str) -> str:
-        try:
-            with open(filepath, "r", encoding="utf-8", errors="replace") as f:
-                lines = f.readlines()
-            return "".join(f"{i+1:>4}: {line}" for i, line in enumerate(lines))
-        except Exception as e:
-            return f"Error reading file: {e}"
 
-    def _tool_write_file(self, filepath: str, content: str) -> str:
-        try:
-            if os.path.exists(filepath):
-                with open(filepath, "r", encoding="utf-8", errors="replace") as f:
-                    self._file_backups[filepath] = f.read()
-            os.makedirs(os.path.dirname(os.path.abspath(filepath)), exist_ok=True)
-            with open(filepath, "w", encoding="utf-8") as f:
-                f.write(content)
-            return f"Successfully wrote {len(content.splitlines())} lines to {filepath}"
-        except Exception as e:
-            return f"Error writing file: {e}"
 
     # ── Helper: build async OpenAI client ────────────────────────────────────
 
@@ -640,14 +622,24 @@ class BijuTUI(App):
             except Exception:
                 pass
 
+        # Build repo context for project awareness
+        repo_ctx = ""
+        try:
+            repo_ctx = "\n\n" + build_repo_context(cwd)
+        except Exception:
+            pass
+
+        tool_names = ", ".join(sorted(ALL_TOOL_NAMES))
         return (
             f"You are Biju, an autonomous AI terminal engineer. "
             f"You run on {os_name}. Current working directory: {cwd}.\n"
-            "You have access to tools: run_command (shell), read_file, write_file.\n"
+            f"You have access to tools: {tool_names}.\n"
             "Always be precise, professional, and efficient. "
-            "Prefer targeted edits over full rewrites. "
+            "Prefer targeted edits (edit_file) over full rewrites (write_file). "
+            "Use list_dir and search_in_files to explore the codebase before making changes. "
             "Always explain what you're about to do before using a tool."
             + instructions
+            + repo_ctx
         )
 
     # ── Helper: text cleanup ──────────────────────────────────────────────
@@ -661,7 +653,7 @@ class BijuTUI(App):
         )
         return text.strip()
 
-    KNOWN_TOOLS = {"run_command", "read_file", "write_file"}
+    KNOWN_TOOLS = ALL_TOOL_NAMES
 
     def _try_parse_text_tool_call(self, text: str) -> dict | None:
         stripped = text.strip()
@@ -762,10 +754,11 @@ class BijuTUI(App):
 
     async def _cmd_undo(self) -> None:
         out = self.query_one("#output", OutputPanel)
-        if not self._file_backups:
+        backups = get_file_backups()
+        if not backups:
             out.add_tool_event("Nothing to undo.")
             return
-        filepath, original = self._file_backups.popitem()
+        filepath, original = backups.popitem()
         try:
             with open(filepath, "w", encoding="utf-8") as f:
                 f.write(original)

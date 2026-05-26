@@ -10,6 +10,14 @@ import threading
 import time
 import html
 from collections import deque
+
+# Shared tool modules — single source of truth for both CLI and TUI
+from biju.tool_defs import TOOL_SCHEMAS, ALL_TOOL_NAMES, PERMISSION_REQUIRED, READ_ONLY_TOOLS
+from biju.tools import (
+    dispatch_tool, run_command_impl, read_file, write_file, edit_file,
+    check_trusted_dir, is_destructive_command,
+    build_repo_context, summarize_conversation, get_file_backups,
+)
 from openai import OpenAI, APITimeoutError
 from rich.console import Console
 from rich.markdown import Markdown
@@ -48,7 +56,7 @@ FAST_FALLBACK_MODEL = "meta/llama-3.1-8b-instruct"
 AUTOPILOT          = False
 ALLOW_ALL          = False   # /allow-all — skip all approval prompts
 MAX_TOOL_CALLS     = 10          # safety limiter per turn
-_file_backups: dict[str, str] = {}  # filepath -> original content for /undo
+_file_backups = get_file_backups()  # shared with biju.tools for /undo
 cancel_flag   = threading.Event()   # set to cancel an in-flight AI request
 prompt_queue: deque[str] = deque()  # queued prompts to auto-process
 RUNNING_AGENTS: dict[str, object] = {}  # name -> Agent object
@@ -147,14 +155,14 @@ def get_model_label(model_id: str) -> str:
 # --- ALL SLASH COMMANDS ---
 COMMANDS = {
     "/add-dir":    "Add a trusted directory Biju can freely read/write",
-    "/agent":      "Spawn a real background agent (Researcher/Coder/Git/File/Test/Shell)",
+    "/agent":      "Spawn a background agent (Researcher/Coder/Git/File/Test/Shell/Repo-Scout/Patch-Editor/Reviewer/Security)",
     "/allow-all":  "Enable full autonomy — autopilot ON + skip all approvals",
     "/ask":        "Ask a quick side question without adding to conversation history",
     "/autopilot":  "Toggle autopilot mode for terminal commands",
     "/changelog":  "Display changelog for CLI versions",
     "/clear":      "Clear the terminal screen",
     "/config":     "Reset and delete your saved API keys",
-    "/help":       "Show the help menu with all commands",
+    "/help":       "Show the help menu with all commands and available tools",
     "/history":    "Show current session message count and token estimate",
     "/init":       "Initialize Biju instructions for this repository",
     "/model":      "Interactive menu to choose a different AI model",
@@ -376,65 +384,28 @@ def interactive_model_selector(current_model):
     )
     return app.run()
 
-# --- TOOLS SCHEMA ---
-tools = [
-    {
-        "type": "function",
-        "function": {
-            "name": "run_command",
-            "description": (
-                "Execute a shell/terminal command on the user's OS and return its full output including "
-                "exit code, stdout, and stderr. Use to navigate directories, run scripts, install packages, "
-                "run tests, or perform any system operation. Prefer specific, targeted commands."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {"command": {"type": "string", "description": "The exact shell command to execute."}},
-                "required": ["command"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "read_file",
-            "description": (
-                "Read the full contents of a file, returned with line numbers prepended to every line "
-                "(e.g. '  12: def foo():') so you can reference exact line numbers for targeted edits."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {"filepath": {"type": "string", "description": "Absolute or relative path to the file."}},
-                "required": ["filepath"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "write_file",
-            "description": (
-                "Write or completely overwrite a file with new content. "
-                "Use this only when creating a brand-new file. "
-                "For editing existing files prefer replacing only the changed lines."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "filepath": {"type": "string", "description": "Absolute or relative path to the file to write."},
-                    "content":  {"type": "string", "description": "The complete new content of the file."},
-                },
-                "required": ["filepath", "content"],
-            },
-        },
-    },
-]
+# --- TOOLS SCHEMA (imported from shared module) ---
+tools = TOOL_SCHEMAS
 
-# --- TOOL IMPLEMENTATIONS ---
+# --- TOOL IMPLEMENTATIONS (imported from biju.tools) ---
+# run_command wrapper — adds CLI-specific approval UI on top of shared impl
 def run_command(cmd: str) -> str:
-    """Execute a shell command with optional user approval."""
+    """Execute a shell command with approval, trusted-dir, and destructive-cmd checks."""
     global AUTOPILOT, ALLOW_ALL
-    if not AUTOPILOT and not ALLOW_ALL:
+
+    # ── Destructive command safety (Feature 8) ────────────────────────────
+    is_destr, destr_desc = is_destructive_command(cmd)
+    if is_destr and not ALLOW_ALL:
+        console.print(Panel(
+            f"[bold red]⚠ DESTRUCTIVE COMMAND DETECTED[/bold red]\n\n"
+            f"  [bold white]{cmd}[/bold white]\n\n"
+            f"  [yellow]Risk: {destr_desc}[/yellow]",
+            border_style="red", title="[red]🛑 Dangerous Operation[/red]", padding=(0, 1),
+        ))
+        approval = input("  This is destructive. Are you sure? [y/N]: ").strip().lower()
+        if approval != "y":
+            return "Destructive command denied by user."
+    elif not AUTOPILOT and not ALLOW_ALL:
         console.print(Panel(
             f"[bold yellow]Biju wants to run:[/bold yellow]\n\n  [bold white]{cmd}[/bold white]",
             border_style="yellow", title="[yellow]⚠ Command Approval[/yellow]", padding=(0, 1),
@@ -448,45 +419,37 @@ def run_command(cmd: str) -> str:
             border_style="magenta", title="[magenta]⚡ Autopilot[/magenta]", padding=(0, 1),
         ))
 
-    try:
-        result = subprocess.run(
-            cmd, shell=True, capture_output=True, text=True, timeout=60
-        )
-        output_parts = []
-        output_parts.append(f"Exit Code: {result.returncode}")
-        if result.stdout.strip():
-            output_parts.append(f"Stdout:\n{result.stdout.strip()}")
-        if result.stderr.strip():
-            output_parts.append(f"Stderr:\n{result.stderr.strip()}")
-        return "\n".join(output_parts) if output_parts else "Command completed with no output."
-    except subprocess.TimeoutExpired:
-        return "Error: Command timed out after 60 seconds."
-    except Exception as e:
-        return f"Error executing command: {e}"
+    return run_command_impl(cmd)
 
-def read_file(filepath: str) -> str:
-    try:
-        with open(filepath, "r", encoding="utf-8", errors="replace") as f:
-            lines = f.readlines()
-        numbered = "".join(f"{i+1:>4}: {line}" for i, line in enumerate(lines))
-        return numbered
-    except Exception as e:
-        return f"Error reading file: {e}"
+# write_file wrapper — adds trusted-dir check
+def cli_write_file(filepath: str, content: str) -> str:
+    """Write file with trusted-dir enforcement."""
+    if not ALLOW_ALL:
+        config = load_config()
+        trusted = config.get("trusted_dirs", [])
+        allowed, reason = check_trusted_dir(filepath, trusted, os.getcwd(), ALLOW_ALL)
+        if not allowed:
+            console.print(Panel(
+                f"[bold red]🚫 Write blocked:[/bold red] {reason}",
+                border_style="red", expand=False,
+            ))
+            return f"Write denied: {reason}"
+    return write_file(filepath, content)
 
-def write_file(filepath: str, content: str) -> str:
-    global _file_backups
-    try:
-        # Back up original before overwriting
-        if os.path.exists(filepath):
-            with open(filepath, "r", encoding="utf-8", errors="replace") as f:
-                _file_backups[filepath] = f.read()
-
-        os.makedirs(os.path.dirname(os.path.abspath(filepath)), exist_ok=True)
-        with open(filepath, "w", encoding="utf-8") as f:
-            f.write(content)
-        return f"Successfully wrote {len(content.splitlines())} lines to {filepath}"
-    except Exception as e:
-        return f"Error writing file: {e}"
+# edit_file wrapper — adds trusted-dir check
+def cli_edit_file(filepath: str, old_text: str, new_text: str) -> str:
+    """Edit file with trusted-dir enforcement."""
+    if not ALLOW_ALL:
+        config = load_config()
+        trusted = config.get("trusted_dirs", [])
+        allowed, reason = check_trusted_dir(filepath, trusted, os.getcwd(), ALLOW_ALL)
+        if not allowed:
+            console.print(Panel(
+                f"[bold red]🚫 Edit blocked:[/bold red] {reason}",
+                border_style="red", expand=False,
+            ))
+            return f"Edit denied: {reason}"
+    return edit_file(filepath, old_text, new_text)
 
 # --- THINKING BLOCK RENDERER ---
 def render_thinking(thoughts: str):
@@ -501,14 +464,28 @@ def render_thinking(thoughts: str):
 # --- TOOL CALL DISPLAY ---
 def render_tool_call(func_name: str, args: dict):
     icons = {
-        "run_command": "⚙",
-        "read_file":   "📄",
-        "write_file":  "✏",
+        "run_command":     "⚙",
+        "read_file":       "📄",
+        "write_file":      "✏",
+        "edit_file":       "🔧",
+        "list_dir":        "📂",
+        "search_in_files": "🔍",
+        "read_file_range": "📄",
+        "git_status":      "🌿",
+        "git_diff":        "🌿",
+        "git_log":         "🌿",
     }
     colors = {
-        "run_command": "yellow",
-        "read_file":   "blue",
-        "write_file":  "green",
+        "run_command":     "yellow",
+        "read_file":       "blue",
+        "write_file":      "green",
+        "edit_file":       "green",
+        "list_dir":        "cyan",
+        "search_in_files": "cyan",
+        "read_file_range": "blue",
+        "git_status":      "bright_green",
+        "git_diff":        "bright_green",
+        "git_log":         "bright_green",
     }
     icon  = icons.get(func_name, "🔧")
     color = colors.get(func_name, "white")
@@ -517,8 +494,12 @@ def render_tool_call(func_name: str, args: dict):
     detail = ""
     if func_name == "run_command":
         detail = args.get("command", "")
-    elif func_name in ("read_file", "write_file"):
+    elif func_name in ("read_file", "write_file", "edit_file", "read_file_range"):
         detail = args.get("filepath", "")
+    elif func_name == "list_dir":
+        detail = args.get("path", ".")
+    elif func_name == "search_in_files":
+        detail = args.get("query", "")
 
     console.print(
         f"  [{color}]{icon} {label}[/{color}] [dim]{detail}[/dim]"
@@ -544,7 +525,7 @@ def _strip_thinking(text: str) -> str:
 
 
 # --- HELPER: detect tool calls embedded as text ---
-KNOWN_TOOLS = {"run_command", "read_file", "write_file"}
+KNOWN_TOOLS = ALL_TOOL_NAMES
 
 def _try_parse_text_tool_call(text: str) -> dict | None:
     """
@@ -634,11 +615,15 @@ def chat_with_agent(user_input: str, messages: list) -> str | None:
 
         model_label = MODEL.split("/")[-1]
 
+        # ── Conversation summarization (Feature 6) ────────────────────────
+        summarized = summarize_conversation(messages)
+        api_messages = summarized
+
         # ── Open streaming request ────────────────────────────────────────
         try:
             stream_iter = client.chat.completions.create(
                 model=MODEL,
-                messages=messages,
+                messages=api_messages,
                 tools=tools,
                 tool_choice="auto",
                 temperature=0.1,
@@ -662,62 +647,46 @@ def chat_with_agent(user_input: str, messages: list) -> str | None:
                 console.print(f"\n[bold red]✗ API Error:[/bold red] {e}")
             return None
 
-        # ── Show a simple spinner while accumulating ──────────────────────
-        spinner_stop = threading.Event()
-        def _spin():
-            frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
-            i = 0
-            while not spinner_stop.is_set():
-                sys.stdout.write(f"\r  {frames[i % len(frames)]} {model_label} is thinking...  ")
-                sys.stdout.flush()
-                i += 1
-                spinner_stop.wait(0.1)
-            # Clear spinner line
-            sys.stdout.write("\r" + " " * 70 + "\r")
-            sys.stdout.flush()
-
-        spin_thread = threading.Thread(target=_spin, daemon=True)
-        spin_thread.start()
-
-        # ── Silently accumulate the full response ─────────────────────────
+        # ── Stream tokens live using Rich Live ─────────────────────────────
         full_content: str = ""
         tool_calls_acc: dict[int, dict] = {}
         has_tool_calls = False
+        first_token = True
 
         try:
-            for chunk in stream_iter:
-                if cancel_flag.is_set():
-                    spinner_stop.set()
-                    spin_thread.join(timeout=1)
-                    return None
-                if not chunk.choices:
-                    continue
-                delta = chunk.choices[0].delta
+            with Live("", console=console, refresh_per_second=10, transient=True) as live:
+                for chunk in stream_iter:
+                    if cancel_flag.is_set():
+                        return None
+                    if not chunk.choices:
+                        continue
+                    delta = chunk.choices[0].delta
 
-                if delta.content:
-                    full_content += delta.content
+                    if delta.content:
+                        full_content += delta.content
+                        # Show live-updating markdown (only visible text)
+                        visible = _strip_thinking(full_content)
+                        if visible:
+                            live.update(Markdown(visible))
 
-                if delta.tool_calls:
-                    has_tool_calls = True
-                    for tc in delta.tool_calls:
-                        idx = tc.index
-                        if idx not in tool_calls_acc:
-                            tool_calls_acc[idx] = {
-                                "id": "", "type": "function",
-                                "function": {"name": "", "arguments": ""},
-                            }
-                        if tc.id:
-                            tool_calls_acc[idx]["id"] = tc.id
-                        if tc.function:
-                            if tc.function.name:
-                                tool_calls_acc[idx]["function"]["name"] += tc.function.name
-                            if tc.function.arguments:
-                                tool_calls_acc[idx]["function"]["arguments"] += tc.function.arguments
+                    if delta.tool_calls:
+                        has_tool_calls = True
+                        for tc in delta.tool_calls:
+                            idx = tc.index
+                            if idx not in tool_calls_acc:
+                                tool_calls_acc[idx] = {
+                                    "id": "", "type": "function",
+                                    "function": {"name": "", "arguments": ""},
+                                }
+                            if tc.id:
+                                tool_calls_acc[idx]["id"] = tc.id
+                            if tc.function:
+                                if tc.function.name:
+                                    tool_calls_acc[idx]["function"]["name"] += tc.function.name
+                                if tc.function.arguments:
+                                    tool_calls_acc[idx]["function"]["arguments"] += tc.function.arguments
         except Exception:
             pass  # stream ended or network error
-        finally:
-            spinner_stop.set()
-            spin_thread.join(timeout=1)
 
         # ── Extract and optionally display thinking ───────────────────────
         thinking_content = ""
@@ -783,14 +752,21 @@ def chat_with_agent(user_input: str, messages: list) -> str | None:
                 except json.JSONDecodeError:
                     args = {}
                 render_tool_call(func_name, args)
+                # Dispatch tool — use CLI wrappers for gated tools
                 if func_name == "run_command":
                     result = run_command(args.get("command", ""))
-                elif func_name == "read_file":
-                    result = read_file(args.get("filepath", ""))
                 elif func_name == "write_file":
-                    result = write_file(args.get("filepath", ""), args.get("content", ""))
+                    result = cli_write_file(args.get("filepath", ""), args.get("content", ""))
+                elif func_name == "edit_file":
+                    result = cli_edit_file(
+                        args.get("filepath", ""),
+                        args.get("old_text", ""),
+                        args.get("new_text", ""),
+                    )
                 else:
-                    result = f"Unknown tool: {func_name}"
+                    # All other tools (read_file, list_dir, search_in_files,
+                    # read_file_range, git_status, git_diff, git_log) use shared dispatch
+                    result = dispatch_tool(func_name, args)
                 messages.append({"role": "tool", "tool_call_id": tc["id"], "content": result})
             console.print()
             # loop for next AI turn
@@ -880,12 +856,43 @@ def print_startup_screen():
 
 # --- SLASH COMMAND HANDLERS ---
 def cmd_help():
-    table = Table(box=box.ROUNDED, border_style="cyan", show_header=True, header_style="bold cyan")
+    # ── Commands table
+    table = Table(box=box.ROUNDED, border_style="cyan", show_header=True, header_style="bold cyan", title="[bold cyan]Slash Commands[/bold cyan]")
     table.add_column("Command",     style="bold white",  no_wrap=True)
     table.add_column("Description", style="dim white")
     for cmd, desc in COMMANDS.items():
         table.add_row(cmd, desc)
     console.print(table)
+
+    # ── Tools table
+    tool_rows = [
+        ("run_command",     "⚙",  "yellow",       "Execute a shell command (approval required)"),
+        ("read_file",       "📄",  "blue",         "Read a file with line numbers"),
+        ("write_file",      "✏",   "green",        "Create a new file (use edit_file for changes)"),
+        ("edit_file",       "🔧",  "green",        "Patch exact text in an existing file (diff preview)"),
+        ("list_dir",        "📂",  "cyan",         "Tree-formatted directory listing"),
+        ("search_in_files", "🔍",  "cyan",         "Search text/regex across files"),
+        ("read_file_range", "📄",  "blue",         "Read specific line range from a file"),
+        ("git_status",      "🌿",  "bright_green", "Show git status and branch"),
+        ("git_diff",        "🌿",  "bright_green", "Show git diff (working or staged)"),
+        ("git_log",         "🌿",  "bright_green", "Show recent git commit log"),
+    ]
+    ttable = Table(box=box.ROUNDED, border_style="dim", show_header=True, header_style="bold", title="[bold]Available AI Tools[/bold]")
+    ttable.add_column("Tool",        style="bold white", no_wrap=True)
+    ttable.add_column("Icon",        style="dim",        no_wrap=True, width=3)
+    ttable.add_column("Description", style="dim white")
+    for name, icon, _color, desc in tool_rows:
+        ttable.add_row(name, icon, desc)
+    console.print(ttable)
+
+    # ── Agents table
+    atable = Table(box=box.ROUNDED, border_style="dim", show_header=True, header_style="bold", title="[bold]Background Agents  (/agent)[/bold]")
+    atable.add_column("Agent",       style="bold white", no_wrap=True)
+    atable.add_column("Icon",        no_wrap=True, width=3)
+    atable.add_column("Description", style="dim white")
+    for a in AGENT_DEFINITIONS:
+        atable.add_row(a["name"], a["icon"], a["desc"])
+    console.print(atable)
 
 def cmd_setkey():
     console.print(Panel(
@@ -1178,6 +1185,101 @@ AGENT_DEFINITIONS = [
             "Report exit codes and important output clearly."
         ),
     },
+    # ── New specialized agents (Feature 8) ─────────────────────────────
+    {
+        "name": "Repo Scout",
+        "icon": "🧐",
+        "color": "bright_cyan",
+        "desc": "Maps repo structure, reads key files, builds a project briefing",
+        "model": "meta/llama-3.3-70b-instruct",
+        "model_label": "Llama 3.3 70B",
+        "system": (
+            "You are the Repo Scout agent inside Biju CLI. Your job is to understand and map a codebase.\n"
+            "Start with list_dir('.', depth=3) to get the full project tree. "
+            "Then read key files: README, setup.py/pyproject.toml/package.json, main entry points, and any config files. "
+            "Use search_in_files to locate important patterns (e.g. class definitions, exports, routes, models). "
+            "Use git_log to understand recent activity. "
+            "Produce a structured CODEBASE BRIEFING with sections:\n"
+            "  1. Project Overview (what it does, stack, entry points)\n"
+            "  2. Directory Map (key directories and their purpose)\n"
+            "  3. Key Files (what each important file contains)\n"
+            "  4. Dependencies (external libs, APIs, databases)\n"
+            "  5. Recent Activity (last 10 commits summary)\n"
+            "  6. Suggested Entry Points (best files to start reading)\n"
+            "Be thorough but concise. Do not guess — read the actual files."
+        ),
+    },
+    {
+        "name": "Patch Editor",
+        "icon": "🩹",
+        "color": "green",
+        "desc": "Applies precise targeted edits using edit_file with diff preview",
+        "model": "abacusai/dracarys-llama-3.1-70b-instruct",
+        "model_label": "Dracarys 70B",
+        "system": (
+            "You are the Patch Editor agent inside Biju CLI. Your job is to apply precise, surgical code edits.\n"
+            "RULES:\n"
+            "1. ALWAYS read the file first with read_file or read_file_range before editing.\n"
+            "2. ALWAYS use edit_file (never write_file) for changes to existing files. "
+               "edit_file shows a diff preview before applying.\n"
+            "3. Match the exact whitespace, indentation, and style of the surrounding code.\n"
+            "4. After each edit, use read_file_range to verify the change looks correct.\n"
+            "5. After all edits, run the relevant test/lint command to confirm nothing broke.\n"
+            "6. If multiple files need editing, handle them one at a time in dependency order.\n"
+            "7. Report each edit made: filename, what changed, and why."
+        ),
+    },
+    {
+        "name": "Reviewer",
+        "icon": "📈",
+        "color": "blue",
+        "desc": "Reviews code changes, checks for bugs, style, and best practices",
+        "model": "meta/llama-3.3-70b-instruct",
+        "model_label": "Llama 3.3 70B",
+        "system": (
+            "You are the Reviewer agent inside Biju CLI. Your job is to review code for quality and correctness.\n"
+            "Start by running git_status and git_diff to see all current changes. "
+            "Then read the changed files in full using read_file. "
+            "Also read tests related to changed code using search_in_files. "
+            "Produce a structured CODE REVIEW with sections:\n"
+            "  🐛 BUGS: Any correctness issues, logic errors, or crashes\n"
+            "  ⚠ RISKS: Security issues, data loss, race conditions, edge cases\n"
+            "  📝 STYLE: Naming, complexity, missing docstrings, inconsistent formatting\n"
+            "  ✅ GOOD: What was done well (always acknowledge positives)\n"
+            "  💡 SUGGESTIONS: Non-blocking improvement ideas\n"
+            "Rate severity: CRITICAL / HIGH / MEDIUM / LOW.\n"
+            "End with: VERDICT: [Approve / Needs Changes / Reject] and a one-line summary."
+        ),
+    },
+    {
+        "name": "Security Guard",
+        "icon": "🔐",
+        "color": "red",
+        "desc": "Scans for security vulnerabilities, secrets, and risky patterns",
+        "model": "meta/llama-3.3-70b-instruct",
+        "model_label": "Llama 3.3 70B",
+        "system": (
+            "You are the Security Guard agent inside Biju CLI. Your job is to find security vulnerabilities.\n"
+            "Use search_in_files to scan for known vulnerability patterns such as:\n"
+            "  - Hardcoded secrets: passwords, API keys, tokens, private keys\n"
+            "  - SQL injection: string-formatted queries, f-strings in SQL\n"
+            "  - Command injection: shell=True with user input, os.system() with variables\n"
+            "  - Path traversal: unsanitized file paths from user input\n"
+            "  - Insecure deserialization: pickle.loads, yaml.load without Loader\n"
+            "  - XSS: unescaped HTML output, innerHTML with user data\n"
+            "  - Weak crypto: MD5, SHA1 for passwords, ECB mode, hardcoded IVs\n"
+            "  - Debug/development flags left on: DEBUG=True, verbose error output\n"
+            "Read suspicious files fully with read_file. "
+            "Check .env files, config files, and any file handling user input. "
+            "Produce a SECURITY REPORT with:\n"
+            "  CRITICAL: Findings that could lead to data breach / RCE\n"
+            "  HIGH: Serious vulnerabilities needing immediate fix\n"
+            "  MEDIUM: Issues that should be fixed before production\n"
+            "  LOW: Minor issues and best-practice violations\n"
+            "  CLEAN: Areas that looked clean\n"
+            "For each finding: file, line range, description, severity, and recommended fix."
+        ),
+    },
 ]
 
 
@@ -1264,6 +1366,7 @@ def _agent_worker(agent_def: dict, task: str, agent_obj: dict) -> None:
                             tool_calls_acc[idx]["args"] += tc.function.arguments
 
         # Detect text-based tool calls
+        has_tool_calls = bool(tool_calls_acc)
         if not has_tool_calls and full_content.strip():
             parsed = _try_parse_text_tool_call(full_content)
             if parsed:
@@ -1304,24 +1407,16 @@ def _agent_worker(agent_def: dict, task: str, agent_obj: dict) -> None:
                 console.print(f"{header} [dim]→ {fn_name}({', '.join(f'{k}={repr(v)[:40]}' for k,v in fn_args.items())})[/dim]")
 
                 if fn_name == "run_command":
-                    # Agents always run in autopilot mode
+                    # Agents always run in full autopilot — no approval prompt
                     cmd_to_run = fn_args.get("command", "")
-                    try:
-                        result = subprocess.run(cmd_to_run, shell=True, capture_output=True, text=True, timeout=60)
-                        parts = [f"Exit Code: {result.returncode}"]
-                        if result.stdout.strip(): parts.append(f"Stdout:\n{result.stdout.strip()}")
-                        if result.stderr.strip(): parts.append(f"Stderr:\n{result.stderr.strip()}")
-                        tool_result = "\n".join(parts) or "Done."
-                    except subprocess.TimeoutExpired:
-                        tool_result = "Error: Command timed out."
-                    except Exception as e:
-                        tool_result = f"Error: {e}"
-                elif fn_name == "read_file":
-                    tool_result = read_file(fn_args.get("filepath", ""))
-                elif fn_name == "write_file":
-                    tool_result = write_file(fn_args.get("filepath", ""), fn_args.get("content", ""))
+                    # Still warn on destructive commands in the output
+                    is_destr, destr_desc = is_destructive_command(cmd_to_run)
+                    if is_destr:
+                        console.print(f"{header} [yellow]⚠ Destructive command: {destr_desc}[/yellow]")
+                    tool_result = run_command_impl(cmd_to_run)
                 else:
-                    tool_result = f"Unknown tool: {fn_name}"
+                    # All other tools: use the shared dispatcher
+                    tool_result = dispatch_tool(fn_name, fn_args)
 
                 agent_obj["last_output"] = f"{fn_name}: {tool_result[:100]}"
                 messages.append({
@@ -1497,17 +1592,17 @@ def cmd_allow_all():
     ))
 
 def cmd_undo():
-    global _file_backups
-    if not _file_backups:
+    backups = get_file_backups()
+    if not backups:
         console.print("[bold yellow]⚠ No file backups found for this session.[/bold yellow]")
         return
     # Restore the most recently backed-up file
-    filepath, original = list(_file_backups.items())[-1]
+    filepath, original = list(backups.items())[-1]
     confirm = input(f"  Restore '{filepath}' to its state before Biju edited it? [y/N]: ").strip().lower()
     if confirm == "y":
         with open(filepath, "w", encoding="utf-8") as f:
             f.write(original)
-        del _file_backups[filepath]
+        del backups[filepath]
         console.print(f"[bold green]✓ Restored {filepath}[/bold green]")
     else:
         console.print("[dim]Undo cancelled.[/dim]")
@@ -1593,6 +1688,13 @@ def main():
         with open(instructions_path, "r", encoding="utf-8") as f:
             project_instructions = f"\n\n# PROJECT-SPECIFIC INSTRUCTIONS\n{f.read()}"
 
+    # Build repo context summary (Feature 5)
+    repo_context = ""
+    try:
+        repo_context = "\n\n" + build_repo_context(current_directory)
+    except Exception:
+        pass  # non-critical — skip if it fails
+
     system_prompt = f"""You are Biju, an elite, autonomous AI software engineer operating directly in the user's terminal.
 Developed by Prithish, you are designed to act as a relentless, highly capable agentic assistant.
 
@@ -1609,30 +1711,43 @@ You work recursively: if a command fails, you read the error, adjust your approa
 
 # CORE RULES OF ENGAGEMENT
 1. THINK BEFORE YOU ACT: Before making any tool call, you MUST use <thinking>...</thinking> tags to explain your logic, what you are looking for, and what your next step is.
-2. BE SURGICAL: Never rewrite an entire file if you only need to change a few lines. Use your editing tools to patch specific line ranges.
+2. BE SURGICAL: Never rewrite an entire file if you only need to change a few lines. Use edit_file to patch specific sections.
 3. VERIFY YOUR WORK: After writing or editing code, ALWAYS run the relevant build, lint, or test command to ensure your changes didn't break anything. Do not stop until the tests pass.
 4. NATIVE COMMANDS: You are running on {os_name}. Only propose terminal commands that are native and guaranteed to work on this OS.
-5. NO HALLUCINATION: Never assume the contents of a file or the structure of the project. Always use your search or directory listing tools to verify paths and variable names first.
+5. NO HALLUCINATION: Never assume the contents of a file or the structure of the project. Always use list_dir or search_in_files to verify paths and variable names first.
 6. CONVERSATION VS TOOLS: Do not use `run_command` (like `echo` or `print`) just to speak to the user. Just output regular text for conversation.
 7. EXIT CODES MATTER: When you run a command and get a non-zero exit code, treat it as a failure. Read the stderr, understand the error, and fix it before continuing.
 
+# AVAILABLE TOOLS
+- run_command: Execute shell commands
+- read_file: Read a file with line numbers
+- write_file: Create new files (use edit_file for changes)
+- edit_file: Replace exact text matches in existing files (shows diff preview)
+- list_dir: Tree-formatted directory listing (prefer over ls/dir)
+- search_in_files: Search for text across files (prefer over grep/findstr)
+- read_file_range: Read specific line range from a file
+- git_status: Show current git status and branch
+- git_diff: Show git diff (working tree or staged)
+- git_log: Show recent git commit history
+
 # TOOL USAGE GUIDELINES
-- Search First: If asked to fix a bug about "authentication", use run_command with grep/findstr to find relevant files before guessing.
-- Read with Line Numbers: When reading files, note the line numbers so you can reference them precisely.
+- Use list_dir and search_in_files instead of run_command with ls/dir/grep/findstr.
+- Use read_file_range for large files instead of reading the whole thing.
+- Use edit_file for targeted edits. Only use write_file for brand-new files.
+- Use git_status, git_diff, git_log instead of running raw git commands for inspection.
 - Command Errors: If a terminal command returns a non-zero exit code, analyze the error in your <thinking> block and run a corrective command.
-- Write File: Only use write_file for brand-new files. For changes to existing files, make targeted edits.
 
 # GREETING PROTOCOL
 If the user simply says "hi", "hello", "hey", or "help", DO NOT use tools. Respond EXACTLY with this friendly formatted list:
 
 Hi! 👋 I'm Biju, your autonomous terminal engineer. I can help you with:
 - **Codebase Exploration** (finding bugs, tracing logic)
-- **Surgical Refactoring** (editing code safely)
+- **Surgical Refactoring** (editing code safely with diff previews)
 - **Automated Debugging** (running tests and fixing errors)
 - **Project Setup & Git Workflows**
 
 What are we building or breaking today?
-{project_instructions}
+{project_instructions}{repo_context}
 """
 
     messages: list[dict] = [{"role": "system", "content": system_prompt}]
@@ -1732,6 +1847,9 @@ What are we building or breaking today?
 
                 elif cmd == "/changelog":
                     console.print(Panel(
+                        "[bold]v3.1[/bold]  10 tools (edit_file, list_dir, search_in_files, read_file_range, git tools)\n"
+                        "        4 new agents: Repo Scout, Patch Editor, Reviewer, Security Guard\n"
+                        "        Trusted-dir enforcement, destructive-cmd safety, live streaming, repo context\n"
                         "[bold]v3.0[/bold]  Markdown rendered responses, ESC cancel, prompt queue\n"
                         "[bold]v2.0[/bold]  Complete rewrite — new UI, /undo, /history, /ask, safety limiter\n"
                         "[bold]v1.0[/bold]  Initial release — model selector TUI, autopilot, tool calling",
