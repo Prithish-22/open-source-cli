@@ -196,11 +196,12 @@ def do_update(progress_cb=None) -> tuple[bool, str]:
             return False, "Could not locate the git repository root."
         steps = [
             UpdateStep("git pull origin main"),
-            UpdateStep("pip install -e ."),
         ]
         cmds = [
-            (["git", "pull", "origin", "main"],                          str(repo_root)),
-            ([sys.executable, "-m", "pip", "install", "-e", "."],        str(repo_root)),
+            # Editable installs (-e) read source directly, so git pull is all that's needed.
+            # pip install -e . is NOT repeated — it would fail if pyproject.toml is missing
+            # and is unnecessary since the live source is already linked.
+            (["git", "pull", "origin", "main"], str(repo_root)),
         ]
     elif method == "npm":
         steps = [UpdateStep("npm update -g biju-cli")]
@@ -271,7 +272,7 @@ def run_update_classic(console) -> None:
 
     method = _detect_install_method()
     labels = {
-        "git": "git pull origin main  +  pip install -e .",
+        "git": "git pull origin main",
         "pip": "pip install --upgrade biju-cli",
         "npm": "npm update -g biju-cli",
     }
@@ -321,7 +322,7 @@ async def run_update_async(output_panel, status_bar=None) -> None:
 
     method = _detect_install_method()
     labels = {
-        "git": "git pull origin main  +  pip install -e .",
+        "git": "git pull origin main",
         "pip": "pip install --upgrade biju-cli",
         "npm": "npm update -g biju-cli",
     }
