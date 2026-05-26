@@ -1,6 +1,14 @@
 # 🤖 Biju CLI (v2.0)
 > **An Autonomous AI Software Engineer in Your Terminal**
 
+[![npm version](https://img.shields.io/npm/v/biju-cli.svg?style=flat-square)](https://www.npmjs.com/package/biju-cli)
+[![license](https://img.shields.io/github/license/Prithish-22/open-source-cli.svg?style=flat-square)](https://github.com/Prithish-22/open-source-cli/blob/main/LICENSE)
+
+🚀 **Install globally in 5 seconds:**
+```bash
+npm install -g biju-cli
+```
+
 Biju CLI is a **100% Free, Fully Open Source**, and premium Command Line Interface that transforms your terminal into an interactive AI workspace. Powered by NVIDIA’s high-performance NIM APIs and featuring dedicated background-running AI agents, Biju CLI handles web research, code generation, testing, and git operations autonomously while you work.
 
 ---
