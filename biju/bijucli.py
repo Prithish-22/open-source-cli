@@ -26,11 +26,15 @@ from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.formatted_text import HTML
 
-# Update checker (imported lazily to avoid circular issues)
+# Update checker — add project root to sys.path so tui package is always findable
+# regardless of how biju was launched (source / pip install -e . / global install)
 try:
+    _biju_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if _biju_root not in sys.path:
+        sys.path.insert(0, _biju_root)
     from tui.updater import check_for_updates, print_update_banner, run_update_classic
     _HAS_UPDATER = True
-except ImportError:
+except Exception:
     _HAS_UPDATER = False
 
 console = Console()
