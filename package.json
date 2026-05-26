@@ -4,7 +4,7 @@
   "description": "An Autonomous AI Software Engineer in Your Terminal",
   "main": "bin/index.js",
   "bin": {
-    "biju": "./bin/index.js"
+    "biju": "bin/index.js"
   },
   "scripts": {
     "postinstall": "python -m pip install rich prompt_toolkit openai || python3 -m pip install rich prompt_toolkit openai || pip install rich prompt_toolkit openai || pip3 install rich prompt_toolkit openai"
