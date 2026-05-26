@@ -1,6 +1,15 @@
 """
 tui/ui/input_panel.py
-User Input Area — borderless line with bright magenta prompt, direct text input, and autocomplete.
+User Input Area (~10 % height).
+
+Features
+────────
+• Single-line text area that grows up to ~5 lines.
+• Enter → send message.
+• Shift+Enter → insert newline.
+• Slash-command autocomplete popup.
+• Placeholder text "Ask Biju anything…".
+• Emits InputPanel.MessageSubmitted when the user confirms.
 """
 
 from __future__ import annotations
@@ -9,114 +18,125 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.message import Message
 from textual.widget import Widget
-from textual.widgets import TextArea, Static
-from textual.containers import Container
+from textual.widgets import TextArea, Static, Label
+from textual import on
 
 from tui.commands.registry import get_completions
 
 
-class ChatInput(TextArea):
-    """
-    Subclassed TextArea to cleanly handle Enter and Shift+Enter key events
-    natively, bypassing default multiline action bindings.
-    """
-
-    def on_key(self, event) -> None:
-        if event.key == "enter":
-            event.stop()
-            event.prevent_default()
-            text = self.text.strip()
-            if text:
-                self.clear()
-                # Post the submitted message up to parent InputPanel
-                self.screen.query_one("InputPanel").submit_message(text)
-            return
-
-        if event.key == "shift+enter":
-            event.stop()
-            event.prevent_default()
-            self.insert("\n")
-            return
-
-
 class InputPanel(Widget):
     """
-    Bottom input section styled exactly like the user's mockup.
+    Bottom input section.
+
+    Events emitted
+    ──────────────
+    InputPanel.MessageSubmitted — carries the raw text the user typed
     """
 
     DEFAULT_CSS = """
     InputPanel {
         width: 1fr;
         height: auto;
-        min-height: 2;
+        min-height: 5;
         max-height: 10;
-        background: #08080f;
-        layout: vertical;
+        background: #0a0a1a;
+        border: tall #1a2a4a;
         padding: 0 1;
     }
 
-    InputPanel .input-row {
-        layout: horizontal;
-        height: auto;
-        min-height: 1;
-        max-height: 6;
-        background: transparent;
-    }
-
-    InputPanel #prompt-label {
-        width: auto;
-        color: #ff00ff;
-        text-style: bold;
+    InputPanel .input-label {
+        color: #3a3a6c;
         height: 1;
-        margin-right: 1;
+        margin: 0 0 0 1;
     }
 
-    InputPanel ChatInput {
-        background: #08080f;
-        color: #ffffff;
+    InputPanel TextArea {
+        background: #0a0a1a;
+        color: #e8e8ff;
         border: none;
         height: auto;
-        min-height: 1;
-        max-height: 6;
-        padding: 0;
-        margin: 0;
+        min-height: 2;
+        max-height: 8;
+        scrollbar-color: #1a2a4a;
     }
 
-    InputPanel ChatInput:focus {
+    InputPanel TextArea:focus {
         border: none;
     }
 
-    InputPanel #completions-bar {
+    InputPanel .completions-bar {
         height: 1;
-        color: #888888;
+        color: #2a4a6a;
         overflow: hidden;
-        margin-left: 7; /* Align exactly under input text (after 'biju › ') */
-        background: transparent;
+        margin: 0 0 0 1;
+    }
+
+    InputPanel .hint-bar {
+        height: 1;
+        color: #2a2a4a;
+        margin: 0 0 0 1;
     }
     """
+
+    BINDINGS = [
+        Binding("ctrl+l", "clear_input", "Clear input", show=False),
+    ]
+
+    # ── Inner message ─────────────────────────────────────────────────────────
 
     class MessageSubmitted(Message):
         def __init__(self, text: str) -> None:
             super().__init__()
             self.text = text
 
+    # ── Compose ───────────────────────────────────────────────────────────────
+
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self._completions: list[str] = []
+
     def compose(self) -> ComposeResult:
-        with Container(classes="input-row"):
-            yield Static("biju ›", id="prompt-label")
-            yield ChatInput(
-                "",
-                id="chat-input",
-                show_line_numbers=False,
-                soft_wrap=True,
-            )
-        yield Static("", id="completions-bar")
+        yield Label("╭─ Message", classes="input-label")
+        yield TextArea(
+            "",
+            id="chat-input",
+            show_line_numbers=False,
+            soft_wrap=True,
+        )
+        yield Static("", id="completions-bar", classes="completions-bar")
+        yield Static(
+            "Enter [dim]↵ Send[/dim]   Shift+Enter [dim]↵ Newline[/dim]   Ctrl+K [dim]Palette[/dim]   Ctrl+L [dim]Clear[/dim]",
+            id="hint-bar",
+            classes="hint-bar",
+        )
 
     def on_mount(self) -> None:
-        self.focus_input()
+        self.query_one("#chat-input", TextArea).focus()
+
+    # ── Key handling ──────────────────────────────────────────────────────────
+
+    def on_key(self, event) -> None:
+        ta = self.query_one("#chat-input", TextArea)
+
+        # Enter (no shift) → submit
+        if event.key == "enter":
+            event.stop()
+            text = ta.text.strip()
+            if text:
+                ta.clear()
+                self._update_completions("")
+                self.post_message(self.MessageSubmitted(text))
+            return
+
+        # Shift+Enter → insert newline
+        if event.key == "shift+enter":
+            event.stop()
+            ta.insert("\n")
+            return
 
     def on_text_area_changed(self, event: TextArea.Changed) -> None:
-        if event.text_area.id == "chat-input":
-            self._update_completions(event.text_area.text)
+        text = event.text_area.text
+        self._update_completions(text)
 
     def _update_completions(self, text: str) -> None:
         bar = self.query_one("#completions-bar", Static)
@@ -133,16 +153,17 @@ class InputPanel(Widget):
         else:
             bar.update("")
 
-    def submit_message(self, text: str) -> None:
-        """Called by ChatInput child when Enter is pressed."""
+    # ── Actions ───────────────────────────────────────────────────────────────
+
+    def action_clear_input(self) -> None:
+        self.query_one("#chat-input", TextArea).clear()
         self._update_completions("")
-        self.post_message(self.MessageSubmitted(text))
 
     def focus_input(self) -> None:
-        self.query_one("#chat-input", ChatInput).focus()
+        self.query_one("#chat-input", TextArea).focus()
 
     def set_text(self, text: str) -> None:
-        ta = self.query_one("#chat-input", ChatInput)
+        """Pre-fill the input box (e.g. from command palette)."""
+        ta = self.query_one("#chat-input", TextArea)
         ta.clear()
         ta.insert(text)
-        self._update_completions(text)
