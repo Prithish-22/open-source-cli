@@ -25,6 +25,10 @@ npm install -g biju-cli
 Most AI CLIs are frustrating—they force you into paid subscriptions, place strict limits, or try to bypass your own API integrations. 
 
 **Biju CLI was created to change that!** It is **100% free and fully open-source**, built so you can plug in **your own API keys** and start building immediately.
+
+> [!IMPORTANT]
+> **We do not charge a single rupee or dollar!** Biju CLI itself is 100% free and open-source. When we mention "paid API", it simply means that those external third-party providers (like DeepSeek or Moonshot) may charge for usage on their own platforms when you generate their API keys. Biju CLI does not charge you anything!
+
 * **NVIDIA NIM API:** Fully supported (Free and Paid tiers).
 * **DeepSeek API:** Supported (Paid/External keys).
 * **Moonshot (Kimi) API:** Supported (Paid/External keys).
