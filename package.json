@@ -1,6 +1,6 @@
 {
   "name": "biju-cli",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "An Autonomous AI Software Engineer in Your Terminal",
   "main": "bin/index.js",
   "bin": {
