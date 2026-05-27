@@ -4,8 +4,6 @@ Unit tests for biju/tools.py — all shared tool implementations.
 """
 
 import os
-import tempfile
-import textwrap
 import pytest
 
 # Make sure the project root is importable
@@ -26,9 +24,6 @@ from biju.tools import (
     summarize_conversation,
     dispatch_tool,
     get_file_backups,
-    git_status,
-    git_diff,
-    git_log,
 )
 
 

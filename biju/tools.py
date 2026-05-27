@@ -15,7 +15,6 @@ import platform
 import re
 import shutil
 import subprocess
-import textwrap
 from pathlib import Path
 from typing import Tuple
 
@@ -613,36 +612,54 @@ def dispatch_tool(func_name: str, args: dict) -> str:
     those must be done by the caller before calling dispatch_tool.
     """
     if func_name == "run_command":
-        return run_command_impl(args.get("command", ""))
+        cmd = args.get("command")
+        return run_command_impl(str(cmd) if cmd is not None else "")
     elif func_name == "read_file":
-        return read_file(args.get("filepath", ""))
+        filepath = args.get("filepath")
+        return read_file(str(filepath) if filepath is not None else "")
     elif func_name == "write_file":
-        return write_file(args.get("filepath", ""), args.get("content", ""))
+        filepath = args.get("filepath")
+        content = args.get("content")
+        return write_file(str(filepath) if filepath is not None else "", str(content) if content is not None else "")
     elif func_name == "edit_file":
+        filepath = args.get("filepath")
+        old_text = args.get("old_text")
+        new_text = args.get("new_text")
         return edit_file(
-            args.get("filepath", ""),
-            args.get("old_text", ""),
-            args.get("new_text", ""),
+            str(filepath) if filepath is not None else "",
+            str(old_text) if old_text is not None else "",
+            str(new_text) if new_text is not None else "",
         )
     elif func_name == "list_dir":
-        return list_dir(args.get("path"), args.get("depth", 2))
+        path = args.get("path")
+        depth = args.get("depth")
+        return list_dir(str(path) if path is not None else ".", int(depth) if depth is not None else 2)
     elif func_name == "search_in_files":
+        query = args.get("query")
+        paths = args.get("paths")
+        glob_p = args.get("glob")
         return search_in_files(
-            args.get("query", ""),
-            args.get("paths"),
-            args.get("glob"),
+            str(query) if query is not None else "",
+            str(paths) if paths is not None else None,
+            str(glob_p) if glob_p is not None else None,
         )
     elif func_name == "read_file_range":
+        filepath = args.get("filepath")
+        start_line = args.get("start_line")
+        end_line = args.get("end_line")
         return read_file_range(
-            args.get("filepath", ""),
-            args.get("start_line", 1),
-            args.get("end_line", 1),
+            str(filepath) if filepath is not None else "",
+            int(start_line) if start_line is not None else 1,
+            int(end_line) if end_line is not None else 1,
         )
     elif func_name == "git_status":
         return git_status()
     elif func_name == "git_diff":
-        return git_diff(staged=args.get("staged", False))
+        staged_val = args.get("staged", False)
+        is_staged = staged_val if isinstance(staged_val, bool) else str(staged_val).lower() == "true"
+        return git_diff(staged=is_staged)
     elif func_name == "git_log":
-        return git_log(n=args.get("n", 10))
+        n_val = args.get("n")
+        return git_log(n=int(n_val) if n_val is not None else 10)
     else:
         return f"Unknown tool: {func_name}"

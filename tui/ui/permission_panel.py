@@ -17,7 +17,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from textual.app import ComposeResult
 from textual.message import Message
-from textual.reactive import reactive
 from textual.widget import Widget
 from textual.widgets import Button, Label, Static
 

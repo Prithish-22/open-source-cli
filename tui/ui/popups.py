@@ -10,10 +10,9 @@ from __future__ import annotations
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.message import Message
 from textual.screen import ModalScreen
 from textual.widgets import (
-    Button, DataTable, Input, Label,
+    DataTable, Input, Label,
     ListItem, ListView, Static, TabbedContent, TabPane,
 )
 from textual import on

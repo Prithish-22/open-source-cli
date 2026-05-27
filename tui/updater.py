@@ -382,7 +382,7 @@ def print_update_banner(result: UpdateResult) -> None:
         ))
     except Exception:
         print(f"\n  ⬆  New Biju version: v{result.latest}  (you have v{CURRENT_VERSION})")
-        print(f"     Type /update to update automatically!\n")
+        print("     Type /update to update automatically!\n")
 
 
 def make_update_markup(result: UpdateResult) -> str:

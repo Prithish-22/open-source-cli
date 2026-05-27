@@ -12,7 +12,6 @@ Also handles Git committing, tagging, pushing, and publishing instructions.
 
 import json
 import re
-import os
 import subprocess
 import sys
 from pathlib import Path

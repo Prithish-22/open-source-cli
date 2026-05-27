@@ -20,12 +20,11 @@ from typing import TYPE_CHECKING
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.text import Text
-from rich.syntax import Syntax
+
 from textual.app import ComposeResult
-from textual.widgets import RichLog, Static
+from textual.widgets import Static
 from textual.widget import Widget
 from textual.reactive import reactive
-from textual import work
 
 if TYPE_CHECKING:
     pass

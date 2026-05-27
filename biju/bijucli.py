@@ -1,7 +1,6 @@
 import os
 import sys
 import json
-import subprocess
 import datetime
 import re
 import shutil
@@ -12,18 +11,16 @@ import html
 from collections import deque
 
 # Shared tool modules — single source of truth for both CLI and TUI
-from biju.tool_defs import TOOL_SCHEMAS, ALL_TOOL_NAMES, PERMISSION_REQUIRED, READ_ONLY_TOOLS
+from biju.tool_defs import TOOL_SCHEMAS, ALL_TOOL_NAMES
 from biju.tools import (
-    dispatch_tool, run_command_impl, read_file, write_file, edit_file,
-    check_trusted_dir, is_destructive_command,
-    build_repo_context, summarize_conversation, get_file_backups,
+    dispatch_tool, run_command_impl, write_file, edit_file, check_trusted_dir,
+    is_destructive_command, build_repo_context,
+    summarize_conversation, get_file_backups,
 )
 from openai import OpenAI, APITimeoutError
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.live import Live
-from rich.spinner import Spinner
-from rich.text import Text
 from rich.panel import Panel
 from rich.table import Table
 from rich.rule import Rule
@@ -651,7 +648,6 @@ def chat_with_agent(user_input: str, messages: list) -> str | None:
         full_content: str = ""
         tool_calls_acc: dict[int, dict] = {}
         has_tool_calls = False
-        first_token = True
 
         try:
             with Live("", console=console, refresh_per_second=10, transient=True) as live:
@@ -813,7 +809,7 @@ def run_with_esc_cancel(user_input: str, messages: list) -> str | None:
 # --- STARTUP SCREEN ---
 def print_startup_screen():
     os.system("cls" if os.name == "nt" else "clear")
-    width = shutil.get_terminal_size().columns
+    shutil.get_terminal_size().columns
 
     console.print()
     console.print(Rule(style="cyan dim"))
@@ -1287,7 +1283,7 @@ def _agent_worker(agent_def: dict, task: str, agent_obj: dict) -> None:
     """Background thread function — runs a full AI loop for one agent."""
     global RUNNING_AGENTS
     name        = agent_def["name"]
-    icon        = agent_def["icon"]
+    agent_def["icon"]
     color       = agent_def["color"]
     # Use the user's currently selected model, not a hardcoded agent model.
     agent_model = MODEL
@@ -1347,134 +1343,141 @@ def _agent_worker(agent_def: dict, task: str, agent_obj: dict) -> None:
     tool_calls_made = 0
     max_tool_calls  = 20
 
-    while not agent_obj.get("stop_flag", False):
-        try:
-            stream_iter = client.chat.completions.create(
-                model=agent_model,
-                messages=messages,
-                tools=tools,
-                tool_choice="auto",
-                temperature=0.2,
-                max_tokens=4096,
-                stream=True,
-                timeout=60.0,
-            )
-        except Exception as e:
-            console.print(f"{header} [red]API error: {e}[/red]")
-            agent_obj["status"]      = "error"
-            agent_obj["last_output"] = str(e)
-            break
-
-        full_content   = ""
-        tool_calls_acc: dict = {}
-        for chunk in stream_iter:
-            if agent_obj.get("stop_flag", False):
-                break
-            delta = chunk.choices[0].delta if chunk.choices else None
-            if not delta:
-                continue
-
-            if delta.content:
-                full_content += delta.content
-                print(delta.content, end="", flush=True)
-
-            if delta.tool_calls:
-                for tc in delta.tool_calls:
-                    idx = tc.index
-                    if idx not in tool_calls_acc:
-                        tool_calls_acc[idx] = {"id": "", "name": "", "args": ""}
-                    if tc.id:
-                        tool_calls_acc[idx]["id"] += tc.id
-                    if tc.function:
-                        if tc.function.name:
-                            tool_calls_acc[idx]["name"] += tc.function.name
-                        if tc.function.arguments:
-                            tool_calls_acc[idx]["args"] += tc.function.arguments
-
-        # Detect text-embedded tool calls (Llama quirk)
-        has_tool_calls = bool(tool_calls_acc)
-        if not has_tool_calls and full_content.strip():
-            parsed = _try_parse_text_tool_call(full_content)
-            if parsed:
-                has_tool_calls = True
-                tool_calls_acc = {0: {"id": "text_tc_0", "name": parsed["name"], "args": json.dumps(parsed["args"])}}
-
-        # ── Text response path ────────────────────────────────────────────────
-        clean = _strip_thinking(full_content)
-        if not has_tool_calls and clean:
-            console.print(f"\n{header}")
-            console.print(Markdown(clean))
-            agent_obj["last_output"] = clean[:200]
-
-            # ── Step 1: Check keyword-triggered sub-agents ────────────────────
-            # e.g. "web_search" for Coder when it says "find a library",
-            #      "cve_lookup" for Security Guard when it mentions a CVE.
-            if _check_keyword_subagents(clean, name, agent_obj, messages, header):
-                continue  # sub-agent ran, loop back for main agent to use results
-
-            # ── Step 2: Run post-completion sub-agents (once only) ────────────
-            # e.g. "bug_scanner" for Coder after code is written,
-            #      "diff_analyzer" for Git Agent after commits,
-            #      "security_scanner" for Reviewer.
-            if _run_post_completion_subagents(clean, name, agent_obj, messages, header, task):
-                continue  # sub-agent found issues, loop back for main agent
-
-            # ── Step 3: Truly done — no sub-agents triggered ──────────────────
-            break
-
-        # ── Tool call execution path ──────────────────────────────────────────
-        if has_tool_calls and tool_calls_acc:
-            if tool_calls_made >= max_tool_calls:
-                console.print(f"{header} [yellow]Tool call limit reached ({max_tool_calls}).[/yellow]")
+    try:
+        while not agent_obj.get("stop_flag", False):
+            try:
+                stream_iter = client.chat.completions.create(
+                    model=agent_model,
+                    messages=messages,
+                    tools=tools,
+                    tool_choice="auto",
+                    temperature=0.2,
+                    max_tokens=4096,
+                    stream=True,
+                    timeout=60.0,
+                )
+            except Exception as e:
+                console.print(f"{header} [red]API error: {e}[/red]")
+                agent_obj["status"]      = "error"
+                agent_obj["last_output"] = str(e)
                 break
 
-            tc_list = []
-            for idx in sorted(tool_calls_acc):
-                tc = tool_calls_acc[idx]
-                tc_list.append({
-                    "id": tc["id"] or f"tc_{idx}",
-                    "type": "function",
-                    "function": {"name": tc["name"], "arguments": tc["args"]},
-                })
-            messages.append({"role": "assistant", "content": full_content or None, "tool_calls": tc_list})
+            full_content   = ""
+            tool_calls_acc: dict = {}
+            for chunk in stream_iter:
+                if agent_obj.get("stop_flag", False):
+                    break
+                delta = chunk.choices[0].delta if chunk.choices else None
+                if not delta:
+                    continue
 
-            for tc in tc_list:
-                fn_name = tc["function"]["name"]
-                try:
-                    fn_args = json.loads(tc["function"]["arguments"] or "{}")
-                except json.JSONDecodeError:
-                    fn_args = {}
+                if delta.content:
+                    full_content += delta.content
+                    print(delta.content, end="", flush=True)
 
-                console.print(f"{header} [dim]→ {fn_name}({', '.join(f'{k}={repr(v)[:40]}' for k,v in fn_args.items())})[/dim]")
+                if delta.tool_calls:
+                    for tc in delta.tool_calls:
+                        idx = tc.index
+                        if idx not in tool_calls_acc:
+                            tool_calls_acc[idx] = {"id": "", "name": "", "args": ""}
+                        if tc.id:
+                            tool_calls_acc[idx]["id"] += tc.id
+                        if tc.function:
+                            if tc.function.name:
+                                tool_calls_acc[idx]["name"] += tc.function.name
+                            if tc.function.arguments:
+                                tool_calls_acc[idx]["args"] += tc.function.arguments
 
-                if fn_name == "run_command":
-                    cmd_to_run = fn_args.get("command", "")
-                    is_destr, destr_desc = is_destructive_command(cmd_to_run)
-                    if is_destr:
-                        console.print(f"{header} [yellow]Destructive command: {destr_desc}[/yellow]")
-                    tool_result = run_command_impl(cmd_to_run)
-                else:
-                    tool_result = dispatch_tool(fn_name, fn_args)
+            # Detect text-embedded tool calls (Llama quirk)
+            has_tool_calls = bool(tool_calls_acc)
+            if not has_tool_calls and full_content.strip():
+                parsed = _try_parse_text_tool_call(full_content)
+                if parsed:
+                    has_tool_calls = True
+                    tool_calls_acc = {0: {"id": "text_tc_0", "name": parsed["name"], "args": json.dumps(parsed["args"])}}
 
-                agent_obj["last_output"] = f"{fn_name}: {tool_result[:100]}"
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tc["id"],
-                    "content": tool_result,
-                })
-                tool_calls_made += 1
+            # ── Text response path ────────────────────────────────────────────────
+            clean = _strip_thinking(full_content)
+            if not has_tool_calls and clean:
+                console.print(f"\n{header}")
+                console.print(Markdown(clean))
+                agent_obj["last_output"] = clean[:200]
 
-            continue  # loop back for next AI response
+                # ── Step 1: Check keyword-triggered sub-agents ────────────────────
+                # e.g. "web_search" for Coder when it says "find a library",
+                #      "cve_lookup" for Security Guard when it mentions a CVE.
+                if _check_keyword_subagents(clean, name, agent_obj, messages, header):
+                    continue  # sub-agent ran, loop back for main agent to use results
 
-        # Neither text nor tool calls — unexpected empty response, stop
-        break
+                # ── Step 2: Run post-completion sub-agents (once only) ────────────
+                # e.g. "bug_scanner" for Coder after code is written,
+                #      "diff_analyzer" for Git Agent after commits,
+                #      "security_scanner" for Reviewer.
+                if _run_post_completion_subagents(clean, name, agent_obj, messages, header, task):
+                    continue  # sub-agent found issues, loop back for main agent
 
-    agent_obj["status"] = "done" if not agent_obj.get("stop_flag") else "stopped"
-    console.print(f"\n{header} [dim]{'Finished' if agent_obj['status'] == 'done' else 'Stopped'}.[/dim]\n")
-    # Remove from running after a delay so status can be checked
-    import time as _time
-    _time.sleep(3)
-    RUNNING_AGENTS.pop(name, None)
+                # ── Step 3: Truly done — no sub-agents triggered ──────────────────
+                break
+
+            # ── Tool call execution path ──────────────────────────────────────────
+            if has_tool_calls and tool_calls_acc:
+                if tool_calls_made >= max_tool_calls:
+                    console.print(f"{header} [yellow]Tool call limit reached ({max_tool_calls}).[/yellow]")
+                    break
+
+                tc_list = []
+                for idx in sorted(tool_calls_acc):
+                    tc = tool_calls_acc[idx]
+                    tc_list.append({
+                        "id": tc["id"] or f"tc_{idx}",
+                        "type": "function",
+                        "function": {"name": tc["name"], "arguments": tc["args"]},
+                    })
+                messages.append({"role": "assistant", "content": full_content or None, "tool_calls": tc_list})
+
+                for tc in tc_list:
+                    fn_name = tc["function"]["name"]
+                    try:
+                        fn_args = json.loads(tc["function"]["arguments"] or "{}")
+                    except json.JSONDecodeError:
+                        fn_args = {}
+
+                    console.print(f"{header} [dim]→ {fn_name}({', '.join(f'{k}={repr(v)[:40]}' for k,v in fn_args.items())})[/dim]")
+
+                    if fn_name == "run_command":
+                        cmd_val = fn_args.get("command")
+                        cmd_to_run = str(cmd_val) if cmd_val is not None else ""
+                        is_destr, destr_desc = is_destructive_command(cmd_to_run)
+                        if is_destr:
+                            console.print(f"{header} [yellow]Destructive command: {destr_desc}[/yellow]")
+                        tool_result = run_command_impl(cmd_to_run)
+                    else:
+                        tool_result = dispatch_tool(fn_name, fn_args)
+
+                    agent_obj["last_output"] = f"{fn_name}: {tool_result[:100]}"
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc["id"],
+                        "content": tool_result,
+                    })
+                    tool_calls_made += 1
+
+                continue  # loop back for next AI response
+
+            # Neither text nor tool calls — unexpected empty response, stop
+            break
+    except Exception as e:
+        console.print(f"{header} [red]Fatal worker error: {e}[/red]")
+        agent_obj["status"] = "error"
+        agent_obj["last_output"] = f"Fatal error: {e}"
+    finally:
+        if agent_obj.get("status") not in ("error", "stopped"):
+            agent_obj["status"] = "done" if not agent_obj.get("stop_flag") else "stopped"
+        console.print(f"\n{header} [dim]{agent_obj.get('status', 'Finished').title()}.[/dim]\n")
+        # Remove from running after a delay so status can be checked
+        import time as _time
+        _time.sleep(3)
+        RUNNING_AGENTS.pop(name, None)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

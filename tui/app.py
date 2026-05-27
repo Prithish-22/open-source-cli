@@ -31,16 +31,11 @@ import asyncio
 import json
 import os
 import re
-import subprocess
-import sys
-import threading
 from pathlib import Path
-from typing import AsyncGenerator
 
 from openai import AsyncOpenAI, APITimeoutError
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.widgets import Footer
 
 from tui.models.config import (
     DEFAULT_MODEL,
@@ -54,13 +49,13 @@ from tui.ui.output_panel import OutputPanel
 from tui.ui.permission_panel import PermissionPanel, PermissionRequest
 from tui.ui.popups import CommandPaletteModal, ModelSelectorModal, SessionBrowserModal
 from tui.ui.status_bar import StatusBar
-from tui.updater import check_for_updates, make_update_markup, run_update_async, CURRENT_VERSION
+from tui.updater import check_for_updates, make_update_markup, run_update_async
 
 # ── Configuration file (shared with the classic CLI) ─────────────────────────
 CONFIG_FILE = Path.home() / ".biju_config.json"
 
 # ── Tool definitions & permission sets (shared with the classic CLI) ──────────
-from biju.tool_defs import TOOL_SCHEMAS as TOOLS, ALL_TOOL_NAMES, PERMISSION_REQUIRED, READ_ONLY_TOOLS
+from biju.tool_defs import TOOL_SCHEMAS as TOOLS, ALL_TOOL_NAMES, PERMISSION_REQUIRED
 from biju.tools import (
     dispatch_tool,
     check_trusted_dir,
@@ -178,7 +173,6 @@ class BijuTUI(App):
     async def _handle_command(self, text: str) -> None:
         parts = text.split(None, 1)
         cmd = parts[0].lower()
-        args = parts[1] if len(parts) > 1 else ""
         out = self.query_one("#output", OutputPanel)
 
         if cmd in ("/exit", "/quit"):
@@ -464,20 +458,24 @@ class BijuTUI(App):
 
         # ── Show what we're about to do ───────────────────────────────────
         if func_name == "run_command":
-            detail = args.get("command", "")
+            cmd_val = args.get("command")
+            detail = str(cmd_val) if cmd_val is not None else ""
             event_text = f"{icon} **Run Command**: `{detail}`"
         elif func_name in ("read_file", "read_file_range", "write_file", "edit_file"):
-            detail = args.get("filepath", "")
+            fp_val = args.get("filepath")
+            detail = str(fp_val) if fp_val is not None else ""
             labels = {
                 "read_file": "Read File", "read_file_range": "Read File Range",
                 "write_file": "Write File", "edit_file": "Edit File",
             }
             event_text = f"{icon} **{labels[func_name]}**: `{detail}`"
         elif func_name == "list_dir":
-            detail = args.get("path", ".")
+            path_val = args.get("path")
+            detail = str(path_val) if path_val is not None else "."
             event_text = f"{icon} **List Directory**: `{detail}`"
         elif func_name == "search_in_files":
-            detail = args.get("query", "")
+            query_val = args.get("query")
+            detail = str(query_val) if query_val is not None else ""
             event_text = f"{icon} **Search**: `{detail}`"
         elif func_name in ("git_status", "git_diff", "git_log"):
             detail = ""
@@ -488,7 +486,8 @@ class BijuTUI(App):
 
         # ── Trusted-dir enforcement for file-writing tools ────────────────
         if func_name in ("write_file", "edit_file") and not self._allow_all:
-            filepath = args.get("filepath", "")
+            fp_val = args.get("filepath")
+            filepath = str(fp_val) if fp_val is not None else ""
             if filepath:
                 config = self._load_config()
                 trusted_dirs = config.get("trusted_dirs", [])
@@ -502,7 +501,8 @@ class BijuTUI(App):
         # ── Destructive command safety ────────────────────────────────────
         force_permission = False
         if func_name == "run_command":
-            cmd = args.get("command", "")
+            cmd_val = args.get("command")
+            cmd = str(cmd_val) if cmd_val is not None else ""
             destructive, desc = is_destructive_command(cmd)
             if destructive and not self._allow_all:
                 force_permission = True
@@ -531,10 +531,24 @@ class BijuTUI(App):
             sb.set_status("⚠ Waiting for permission…")
             perm.request_permission(req)
 
-            # Wait for user to respond
+            # Wait for user to respond or cancellation
             try:
-                choice = await asyncio.wait_for(self._permission_future, timeout=120)
+                cancel_task = asyncio.create_task(self._cancel_event.wait())
+                perm_task = asyncio.create_task(asyncio.wait_for(self._permission_future, timeout=120))
+                done, pending = await asyncio.wait(
+                    [cancel_task, perm_task],
+                    return_when=asyncio.FIRST_COMPLETED
+                )
+                for p in pending:
+                    p.cancel()
+                if self._cancel_event.is_set():
+                    perm.hide_panel()
+                    out.add_tool_event("🚫 Generation cancelled during permission request.")
+                    return "Cancelled by user."
+                choice = perm_task.result()
             except asyncio.TimeoutError:
+                choice = "deny"
+            except Exception:
                 choice = "deny"
 
             if choice == "always":
@@ -551,7 +565,8 @@ class BijuTUI(App):
         out.add_tool_event(event_text)
 
         if func_name == "run_command":
-            return await self._tool_run_command(args.get("command", ""))
+            cmd_val = args.get("command")
+            return await self._tool_run_command(str(cmd_val) if cmd_val is not None else "")
         else:
             # All other tools use the shared synchronous dispatcher
             return dispatch_tool(func_name, args)
@@ -751,7 +766,7 @@ class BijuTUI(App):
             "## Notes\n<!-- Things Biju should always keep in mind -->\n"
         )
         path.write_text(template, encoding="utf-8")
-        out.add_tool_event(f"✅ Created `biju-instructions.md` — fill it in to customize Biju's behavior!")
+        out.add_tool_event("✅ Created `biju-instructions.md` — fill it in to customize Biju's behavior!")
 
     async def _cmd_undo(self) -> None:
         out = self.query_one("#output", OutputPanel)

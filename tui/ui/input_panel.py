@@ -19,8 +19,6 @@ from textual.binding import Binding
 from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import TextArea, Static, Label
-from textual import on
-
 from tui.commands.registry import get_completions
 
 
