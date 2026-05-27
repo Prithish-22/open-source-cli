@@ -19,15 +19,12 @@ AGENT_MODELS_CATEGORIZED: dict[str, list[tuple[str, str]]] = {
         ("nvidia/nemotron-3-super-120b-a12b",            "Nemotron 3 Super 120B — NVIDIA's large MoE model."),
         ("mistralai/mistral-nemotron",                   "Mistral Nemotron — NVIDIA-tuned Mistral."),
         ("meta/llama-4-maverick-17b-128e-instruct",      "Llama 4 Maverick 17B MoE — Latest Meta model."),
-        ("deepseek-ai/deepseek-v4-flash",                "DeepSeek V4 Flash — Fast and smart DeepSeek."),
         ("openai/gpt-oss-120b",                          "GPT-OSS 120B — OpenAI's open-source on NVIDIA."),
     ],
     "Code & Reasoning": [
         ("abacusai/dracarys-llama-3.1-70b-instruct",     "Dracarys Llama 3.1 — Exceptional at coding."),
         ("openai/gpt-oss-20b",                           "GPT-OSS 20B — Compact OpenAI, good for code."),
-        ("nvidia/nemotron-3-nano-omni-30b-a3b-reasoning","Nemotron Omni Reasoning — Focused logical reasoning."),
         ("stepfun-ai/step-3.5-flash",                    "Step 3.5 Flash — StepFun's fast reasoning model."),
-        ("sarvamai/sarvam-m",                            "Sarvam-M — Indian multilingual model."),
     ],
     "Fast & Lightweight": [
         ("meta/llama-3.1-8b-instruct",                   "Llama 3.1 8B — Super fast for quick tasks."),
@@ -49,7 +46,6 @@ AGENT_MODELS_CATEGORIZED: dict[str, list[tuple[str, str]]] = {
     "Vision & Multimodal": [
         ("meta/llama-3.2-90b-vision-instruct",   "Llama 3.2 90B Vision — Large vision model."),
         ("meta/llama-3.2-11b-vision-instruct",   "Llama 3.2 11B Vision — Compact vision model."),
-        ("microsoft/phi-4-multimodal-instruct",  "Phi-4 Multimodal — Text + image understanding."),
     ],
 }
 
@@ -61,13 +57,10 @@ MODEL_LABELS: dict[str, str] = {
     "nvidia/nemotron-3-super-120b-a12b":             "Nemotron 3 Super 120B",
     "mistralai/mistral-nemotron":                    "Mistral Nemotron",
     "meta/llama-4-maverick-17b-128e-instruct":       "Llama 4 Maverick",
-    "deepseek-ai/deepseek-v4-flash":                 "DeepSeek V4 Flash",
     "openai/gpt-oss-120b":                           "GPT-OSS 120B",
     "abacusai/dracarys-llama-3.1-70b-instruct":      "Dracarys 70B",
     "openai/gpt-oss-20b":                            "GPT-OSS 20B",
-    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning":  "Nemotron Omni Reasoning",
     "stepfun-ai/step-3.5-flash":                     "Step 3.5 Flash",
-    "sarvamai/sarvam-m":                             "Sarvam-M",
     "meta/llama-3.1-8b-instruct":                    "Llama 3.1 8B",
     "meta/llama-3.2-3b-instruct":                    "Llama 3.2 3B",
     "meta/llama-3.2-1b-instruct":                    "Llama 3.2 1B",
@@ -83,7 +76,6 @@ MODEL_LABELS: dict[str, str] = {
     "moonshot-v1-8k":                                "Kimi (8K)",
     "meta/llama-3.2-90b-vision-instruct":            "Llama 3.2 90B Vision",
     "meta/llama-3.2-11b-vision-instruct":            "Llama 3.2 11B Vision",
-    "microsoft/phi-4-multimodal-instruct":           "Phi-4 Multimodal",
 }
 
 # ── Third-party API routing ────────────────────────────────────────────────────
@@ -97,6 +89,17 @@ THIRD_PARTY_MODELS: dict[str, dict] = {
 
 NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
 
+# ── Best NVIDIA models for web searching (ordered by capability/recency) ───────
+# These are pure NVIDIA-hosted models, picked automatically — no third-party APIs.
+# Order: newest architecture first, then largest parameter count.
+_WEB_SEARCH_MODEL_PRIORITY = [
+    "meta/llama-4-maverick-17b-128e-instruct",   # Latest Meta architecture
+    "openai/gpt-oss-120b",                        # Largest OSS model on NVIDIA
+    "nvidia/nemotron-3-super-120b-a12b",          # Large NVIDIA MoE
+    "mistralai/mistral-large-3-675b-instruct-2512",  # Top Mistral
+    "meta/llama-3.3-70b-instruct",                # Reliable flagship
+]
+
 
 def get_model_label(model_id: str) -> str:
     """Return short human-readable label for a model ID."""
@@ -109,3 +112,21 @@ def get_all_model_ids() -> list[str]:
     for models in AGENT_MODELS_CATEGORIZED.values():
         ids.extend(m for m, _ in models)
     return ids
+
+
+def get_web_search_model() -> str:
+    """
+    Auto-select the best available NVIDIA model for web searching.
+    Picks the highest-priority model that exists in the current model list.
+    This ensures the web search agent always uses the most up-to-date model
+    from the configured list, regardless of what year or version it is.
+    """
+    all_ids = get_all_model_ids()
+    for model_id in _WEB_SEARCH_MODEL_PRIORITY:
+        if model_id in all_ids:
+            return model_id
+    # Fallback: first Flagship model
+    flagship = AGENT_MODELS_CATEGORIZED.get("Flagship", [])
+    if flagship:
+        return flagship[0][0]
+    return DEFAULT_MODEL

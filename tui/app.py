@@ -44,7 +44,6 @@ from textual.widgets import Footer
 
 from tui.models.config import (
     DEFAULT_MODEL,
-    FAST_FALLBACK_MODEL,
     NVIDIA_BASE_URL,
     THIRD_PARTY_MODELS,
     get_model_label,
@@ -367,18 +366,20 @@ class BijuTUI(App):
 
             except APITimeoutError:
                 out.finish_streaming("")
-                out.add_tool_event(f"⏱ Timeout — switching to fallback model ({FAST_FALLBACK_MODEL}).")
-                self._model = FAST_FALLBACK_MODEL
-                self._refresh_status_bar()
-                continue
+                out.add_tool_event(
+                    f"⏱ Request timed out. Your model is still set to **{get_model_label(self._model)}**. "
+                    "Please try again or switch to a faster model with Ctrl+M."
+                )
+                return
 
             except Exception as e:
                 out.finish_streaming("")
                 err = str(e).lower()
                 if "404" in err or "not found" in err:
-                    out.add_tool_event(f"❌ Model '{self._model}' not found. Reverting to default.")
-                    self._model = DEFAULT_MODEL
-                    self._refresh_status_bar()
+                    out.add_tool_event(
+                        f"❌ Model **{get_model_label(self._model)}** is not available or not found. "
+                        "Please select a different model with Ctrl+M."
+                    )
                 else:
                     out.add_tool_event(f"❌ API Error: {e}")
                 return

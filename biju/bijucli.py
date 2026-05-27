@@ -70,15 +70,12 @@ AGENT_MODELS_CATEGORIZED = {
         ("nvidia/nemotron-3-super-120b-a12b",           "Nemotron 3 Super 120B — NVIDIA's large MoE model."),
         ("mistralai/mistral-nemotron",                  "Mistral Nemotron — NVIDIA-tuned Mistral."),
         ("meta/llama-4-maverick-17b-128e-instruct",     "Llama 4 Maverick 17B MoE — Latest Meta model."),
-        ("deepseek-ai/deepseek-v4-flash",               "DeepSeek V4 Flash — Fast and smart DeepSeek."),
         ("openai/gpt-oss-120b",                         "GPT-OSS 120B — OpenAI's open-source on NVIDIA."),
     ],
     "Code and Reasoning": [
         ("abacusai/dracarys-llama-3.1-70b-instruct",    "Dracarys Llama 3.1 — Exceptional at coding."),
         ("openai/gpt-oss-20b",                          "GPT-OSS 20B — Compact OpenAI, good for code."),
-        ("nvidia/nemotron-3-nano-omni-30b-a3b-reasoning", "Nemotron Omni Reasoning — Focused logical reasoning."),
         ("stepfun-ai/step-3.5-flash",                   "Step 3.5 Flash — StepFun's fast reasoning model."),
-        ("sarvamai/sarvam-m",                           "Sarvam-M — Indian multilingual model."),
     ],
     "Fast and Lightweight": [
         ("meta/llama-3.1-8b-instruct",                  "Llama 3.1 8B — Super fast for quick tasks."),
@@ -103,7 +100,6 @@ AGENT_MODELS_CATEGORIZED = {
     "Vision and Multimodal": [
         ("meta/llama-3.2-90b-vision-instruct",          "Llama 3.2 90B Vision — Large vision model."),
         ("meta/llama-3.2-11b-vision-instruct",          "Llama 3.2 11B Vision — Compact vision model."),
-        ("microsoft/phi-4-multimodal-instruct",         "Phi-4 Multimodal — Text + image understanding."),
     ],
 }
 
@@ -116,14 +112,11 @@ MODEL_LABELS: dict[str, str] = {
     "nvidia/nemotron-3-super-120b-a12b":            "Nemotron 3 Super 120B",
     "mistralai/mistral-nemotron":                   "Mistral Nemotron",
     "meta/llama-4-maverick-17b-128e-instruct":      "Llama 4 Maverick",
-    "deepseek-ai/deepseek-v4-flash":                "DeepSeek V4 Flash",
     "openai/gpt-oss-120b":                          "GPT-OSS 120B",
     # Code & Reasoning
     "abacusai/dracarys-llama-3.1-70b-instruct":     "Dracarys 70B",
     "openai/gpt-oss-20b":                           "GPT-OSS 20B",
-    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning": "Nemotron Omni Reasoning",
     "stepfun-ai/step-3.5-flash":                    "Step 3.5 Flash",
-    "sarvamai/sarvam-m":                            "Sarvam-M",
     # Fast & Lightweight
     "meta/llama-3.1-8b-instruct":                   "Llama 3.1 8B",
     "meta/llama-3.2-3b-instruct":                   "Llama 3.2 3B",
@@ -145,12 +138,39 @@ MODEL_LABELS: dict[str, str] = {
     # Vision
     "meta/llama-3.2-90b-vision-instruct":           "Llama 3.2 90B Vision",
     "meta/llama-3.2-11b-vision-instruct":           "Llama 3.2 11B Vision",
-    "microsoft/phi-4-multimodal-instruct":          "Phi-4 Multimodal",
 }
 
 def get_model_label(model_id: str) -> str:
     """Return short human-readable label for a model ID."""
     return MODEL_LABELS.get(model_id, model_id.split("/")[-1])
+
+# ── Best NVIDIA models for web searching (ordered by capability/recency) ───────
+# Auto-selected for the Web Search sub-agent — always picks the most up-to-date
+# available model from the list. Never uses third-party APIs.
+_WEB_SEARCH_MODEL_PRIORITY = [
+    "meta/llama-4-maverick-17b-128e-instruct",    # Latest Meta architecture
+    "openai/gpt-oss-120b",                         # Largest OSS model on NVIDIA
+    "nvidia/nemotron-3-super-120b-a12b",           # Large NVIDIA MoE
+    "mistralai/mistral-large-3-675b-instruct-2512",# Top Mistral
+    "meta/llama-3.3-70b-instruct",                 # Reliable flagship fallback
+]
+
+def get_web_search_model() -> str:
+    """
+    Auto-select the best available NVIDIA model for the Web Search sub-agent.
+    Picks the highest-priority model present in the current model list.
+    This ensures the web agent always uses the most up-to-date model
+    regardless of what year or version is added to the list.
+    """
+    all_ids = []
+    for models in AGENT_MODELS_CATEGORIZED.values():
+        all_ids.extend(m for m, _ in models)
+    for model_id in _WEB_SEARCH_MODEL_PRIORITY:
+        if model_id in all_ids:
+            return model_id
+    # Ultimate fallback: first flagship model
+    flagship = AGENT_MODELS_CATEGORIZED.get("Flagship", [])
+    return flagship[0][0] if flagship else DEFAULT_MODEL
 
 # --- ALL SLASH COMMANDS ---
 COMMANDS = {
@@ -1289,19 +1309,37 @@ def _agent_worker(agent_def: dict, task: str, agent_obj: dict) -> None:
     name        = agent_def["name"]
     icon        = agent_def["icon"]
     color       = agent_def["color"]
-    agent_model = agent_def["model"]       # dedicated model for this agent
-    model_label = agent_def["model_label"]
-    header = f"[bold {color}]{icon} [{name}][/bold {color}]"
+    # Use the user's currently selected model, not a hardcoded agent model.
+    # The 'model' field in AGENT_DEFINITIONS is kept as metadata only.
+    agent_model = MODEL
+    model_label = get_model_label(MODEL)
+    header = f"[bold {color}]{name}[/bold {color}]"
 
-    # Agents always use the NVIDIA API with their own dedicated model —
-    # never the user's current model, never a third-party API.
+    # Connect using the appropriate API for the user's chosen model.
+    # Third-party models (DeepSeek, Kimi) use their own APIs;
+    # NVIDIA-hosted models use the NVIDIA API.
+    THIRD_PARTY_ROUTING = {
+        "deepseek-chat":     {"key": "DEEPSEEK_API_KEY", "base_url": "https://api.deepseek.com/v1"},
+        "deepseek-reasoner": {"key": "DEEPSEEK_API_KEY", "base_url": "https://api.deepseek.com/v1"},
+        "moonshot-v1-8k":    {"key": "KIMI_API_KEY",     "base_url": "https://api.moonshot.cn/v1"},
+        "moonshot-v1-32k":   {"key": "KIMI_API_KEY",     "base_url": "https://api.moonshot.cn/v1"},
+        "moonshot-v1-128k":  {"key": "KIMI_API_KEY",     "base_url": "https://api.moonshot.cn/v1"},
+    }
     try:
         config  = load_config()
-        api_key = config.get("NVIDIA_API_KEY")
+        if agent_model in THIRD_PARTY_ROUTING:
+            routing = THIRD_PARTY_ROUTING[agent_model]
+            api_key  = config.get(routing["key"])
+            base_url = routing["base_url"]
+            provider = routing["key"].replace("_API_KEY", "")
+        else:
+            api_key  = config.get("NVIDIA_API_KEY")
+            base_url = "https://integrate.api.nvidia.com/v1"
+            provider = "NVIDIA"
         if not api_key:
-            raise ValueError("No NVIDIA_API_KEY found. Run /setkey to add it.")
+            raise ValueError(f"No API key found for {provider}. Run /setkey to add it.")
         from openai import OpenAI as _OAI
-        client = _OAI(base_url="https://integrate.api.nvidia.com/v1", api_key=api_key)
+        client = _OAI(base_url=base_url, api_key=api_key)
     except Exception as e:
         agent_obj["status"] = "error"
         agent_obj["last_output"] = f"API error: {e}"
@@ -1380,6 +1418,32 @@ def _agent_worker(agent_def: dict, task: str, agent_obj: dict) -> None:
             console.print(Markdown(clean))
             agent_obj["last_output"] = clean[:200]
 
+            # ── Auto-detect web search requests ──────────────────────────────
+            # If the agent's response mentions searching online, automatically
+            # spawn a parallel Web Search sub-agent to handle it.
+            web_task = _detect_web_search_need(clean)
+            if web_task and not agent_obj.get("_web_search_launched"):
+                agent_obj["_web_search_launched"] = True
+                ws_result = spawn_web_search_subagent(web_task)
+                # Wait for the web search to complete (max 120s)
+                ws_thread = ws_result.get("_thread")
+                if ws_thread:
+                    ws_thread.join(timeout=120)
+                findings = ws_result.get("findings")
+                if findings:
+                    # Inject web search findings as a system-level message
+                    # so the main agent can incorporate them
+                    messages.append({
+                        "role": "user",
+                        "content": (
+                            f"[Web Search Sub-Agent Results]\n\n"
+                            f"The parallel Web Search sub-agent has completed and found the following:\n\n"
+                            f"{findings}\n\n"
+                            f"Please use these findings to continue your task."
+                        ),
+                    })
+                    continue  # loop back so main agent can use the findings
+
         # Execute tool calls
         if has_tool_calls and tool_calls_acc:
             if tool_calls_made >= max_tool_calls:
@@ -1412,7 +1476,7 @@ def _agent_worker(agent_def: dict, task: str, agent_obj: dict) -> None:
                     # Still warn on destructive commands in the output
                     is_destr, destr_desc = is_destructive_command(cmd_to_run)
                     if is_destr:
-                        console.print(f"{header} [yellow]⚠ Destructive command: {destr_desc}[/yellow]")
+                        console.print(f"{header} [yellow]Destructive command: {destr_desc}[/yellow]")
                     tool_result = run_command_impl(cmd_to_run)
                 else:
                     # All other tools: use the shared dispatcher
@@ -1437,6 +1501,193 @@ def _agent_worker(agent_def: dict, task: str, agent_obj: dict) -> None:
     import time as _time
     _time.sleep(3)
     RUNNING_AGENTS.pop(name, None)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# WEB SEARCH SUB-AGENT
+# ─────────────────────────────────────────────────────────────────────────────
+# Automatically spawned in parallel when a main agent needs to search online.
+# Uses the best available up-to-date NVIDIA model (auto-selected, never
+# third-party APIs). Reports findings back via a shared result dict.
+
+_WEB_SEARCH_KEYWORDS = [
+    "search online", "search the web", "search for best", "find template",
+    "find the best", "look up online", "find animation", "find colour",
+    "find color", "best template", "search internet", "look up on web",
+    "find on the web", "best library", "find plugin", "search for",
+    "look for online", "find examples online",
+]
+
+_WEB_SEARCH_SYSTEM = (
+    "You are the Web Search sub-agent inside Biju CLI. Your job is to search the web "
+    "and find the best resources, templates, animations, color palettes, and libraries "
+    "as requested.\n"
+    "Use run_command with curl to fetch web pages (e.g. `curl -s 'https://...'`).\n"
+    "Search for GitHub repos, CDN links, CodePen examples, and documentation pages.\n"
+    "Always try multiple search approaches:\n"
+    "  1. Fetch search engine results via curl (e.g. DuckDuckGo lite)\n"
+    "  2. Fetch the top result pages directly\n"
+    "  3. Look for CDN/npm links for any libraries you find\n"
+    "Produce a clear FINDINGS section at the end with:\n"
+    "  - Name and URL of each resource found\n"
+    "  - Why it is recommended (features, popularity, recency)\n"
+    "  - A ready-to-use code snippet or CDN link where applicable\n"
+    "Be specific and actionable. Do not guess — only report what you actually found."
+)
+
+
+def _web_search_worker(task: str, result_store: dict) -> None:
+    """
+    Background thread: runs a web search using the best available NVIDIA model.
+    Stores results in result_store['findings'] when done.
+    """
+    ws_model = get_web_search_model()
+    ws_label = get_model_label(ws_model)
+    header   = "[bold bright_cyan]Web Search[/bold bright_cyan]"
+
+    console.print(
+        f"\n{header} [dim]Starting parallel web search using "
+        f"[cyan]{ws_label}[/cyan] (auto-selected)…[/dim]\n"
+    )
+
+    try:
+        config  = load_config()
+        api_key = config.get("NVIDIA_API_KEY")
+        if not api_key:
+            result_store["findings"] = "Error: No NVIDIA_API_KEY for web search sub-agent."
+            return
+        from openai import OpenAI as _OAI
+        client = _OAI(base_url="https://integrate.api.nvidia.com/v1", api_key=api_key)
+    except Exception as e:
+        result_store["findings"] = f"Error connecting for web search: {e}"
+        return
+
+    messages = [
+        {"role": "system", "content": _WEB_SEARCH_SYSTEM},
+        {"role": "user",   "content": task},
+    ]
+
+    tool_calls_made = 0
+    max_tool_calls  = 10
+
+    while True:
+        try:
+            stream_iter = client.chat.completions.create(
+                model=ws_model,
+                messages=messages,
+                tools=tools,
+                tool_choice="auto",
+                temperature=0.2,
+                max_tokens=4096,
+                stream=True,
+                timeout=60.0,
+            )
+        except Exception as e:
+            result_store["findings"] = f"Web search API error: {e}"
+            return
+
+        full_content   = ""
+        tool_calls_acc: dict = {}
+
+        for chunk in stream_iter:
+            delta = chunk.choices[0].delta if chunk.choices else None
+            if not delta:
+                continue
+            if delta.content:
+                full_content += delta.content
+                print(delta.content, end="", flush=True)
+            if delta.tool_calls:
+                for tc in delta.tool_calls:
+                    idx = tc.index
+                    if idx not in tool_calls_acc:
+                        tool_calls_acc[idx] = {"id": "", "name": "", "args": ""}
+                    if tc.id:
+                        tool_calls_acc[idx]["id"] += tc.id
+                    if tc.function:
+                        if tc.function.name:
+                            tool_calls_acc[idx]["name"] += tc.function.name
+                        if tc.function.arguments:
+                            tool_calls_acc[idx]["args"] += tc.function.arguments
+
+        has_tool_calls = bool(tool_calls_acc)
+        clean = _strip_thinking(full_content)
+
+        if not has_tool_calls:
+            # Final text response — this is the search findings
+            if clean:
+                console.print(f"\n{header}")
+                console.print(Markdown(clean))
+                result_store["findings"] = clean
+            break
+
+        if tool_calls_made >= max_tool_calls:
+            result_store["findings"] = clean or "Web search reached tool call limit."
+            break
+
+        # Execute tool calls
+        tc_list = []
+        for idx in sorted(tool_calls_acc):
+            tc = tool_calls_acc[idx]
+            tc_list.append({
+                "id": tc["id"] or f"ws_tc_{idx}",
+                "type": "function",
+                "function": {"name": tc["name"], "arguments": tc["args"]},
+            })
+        messages.append({"role": "assistant", "content": full_content or None, "tool_calls": tc_list})
+
+        for tc in tc_list:
+            fn_name = tc["function"]["name"]
+            try:
+                fn_args = json.loads(tc["function"]["arguments"] or "{}")
+            except json.JSONDecodeError:
+                fn_args = {}
+            console.print(f"{header} [dim]→ {fn_name}[/dim]")
+            tool_result = run_command_impl(fn_args.get("command", "")) if fn_name == "run_command" \
+                          else dispatch_tool(fn_name, fn_args)
+            messages.append({"role": "tool", "tool_call_id": tc["id"], "content": tool_result})
+            tool_calls_made += 1
+
+    result_store.setdefault("findings", clean or "No findings returned.")
+    console.print(f"\n{header} [dim]Web search complete.[/dim]\n")
+
+
+def spawn_web_search_subagent(task: str) -> dict:
+    """
+    Spawn a parallel Web Search sub-agent in a background thread.
+    Returns a shared dict; check result['findings'] when the thread completes.
+    The caller can inject result['findings'] into the main agent's messages.
+    """
+    result_store: dict = {"findings": None}
+    t = threading.Thread(
+        target=_web_search_worker,
+        args=(task, result_store),
+        daemon=True,
+    )
+    t.start()
+    result_store["_thread"] = t
+    console.print(Panel(
+        f"[bold bright_cyan]Web Search sub-agent[/bold bright_cyan] spawned in parallel\n"
+        f"[dim]Task: {task}\n"
+        f"Model: [cyan]{get_model_label(get_web_search_model())}[/cyan] (auto-selected)[/dim]",
+        border_style="bright_cyan", expand=False,
+    ))
+    return result_store
+
+
+def _detect_web_search_need(text: str) -> str | None:
+    """
+    Detect if the agent's response text contains a request to search online.
+    Returns a task string if detected, or None otherwise.
+    """
+    text_lower = text.lower()
+    for kw in _WEB_SEARCH_KEYWORDS:
+        if kw in text_lower:
+            # Extract the relevant sentence containing the keyword as the task
+            for sentence in text.split("."):
+                if kw in sentence.lower():
+                    return sentence.strip()
+            return f"Search online for: {kw} (from agent request)"
+    return None
 
 
 def _spawn_agent(agent_def: dict, task: str) -> None:
@@ -1528,13 +1779,12 @@ def cmd_agent(rest: str) -> None:
             for i, a in enumerate(AGENT_DEFINITIONS):
                 sel     = i == state["idx"]
                 running = a["name"] in RUNNING_AGENTS
-                icon    = html.escape(a["icon"])
                 name    = html.escape(a["name"])
                 desc    = html.escape(a["desc"])
                 cursor  = "<ansigreen><b>❯</b></ansigreen>" if sel else " "
                 badge   = " <ansiyellow>(running)</ansiyellow>" if running else ""
-                ntag    = (f"<ansigreen><b>{icon} {name}</b></ansigreen>"
-                           if sel else f"<ansiwhite>{icon} {name}</ansiwhite>")
+                ntag    = (f"<ansigreen><b>{name}</b></ansigreen>"
+                           if sel else f"<ansiwhite>{name}</ansiwhite>")
                 lines.append(f"  {cursor} {ntag}{badge}")
                 lines.append(f"       <ansigray>↳ {desc}</ansigray>")
             lines.append("")
@@ -1551,7 +1801,7 @@ def cmd_agent(rest: str) -> None:
             return
 
         chosen = AGENT_DEFINITIONS[chosen_idx]
-        console.print(f"\n[bold {chosen['color']}]{chosen['icon']} {chosen['name']}[/bold {chosen['color']}] selected.")
+        console.print(f"\n[bold {chosen['color']}]{chosen['name']}[/bold {chosen['color']}] selected.")
         console.print("[dim]  Describe the task (Esc or empty to cancel):[/dim]")
         # Use PromptSession so Esc returns an empty string instead of crashing
         try:
