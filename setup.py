@@ -5,7 +5,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name='biju-cli',
-    version='3.1.2',
+    version='3.1.3',
     description='An advanced AI CLI + TUI developed by Prithish',
     long_description=long_description,
     long_description_content_type="text/markdown",
