@@ -144,33 +144,13 @@ def get_model_label(model_id: str) -> str:
     """Return short human-readable label for a model ID."""
     return MODEL_LABELS.get(model_id, model_id.split("/")[-1])
 
-# ── Best NVIDIA models for web searching (ordered by capability/recency) ───────
-# Auto-selected for the Web Search sub-agent — always picks the most up-to-date
-# available model from the list. Never uses third-party APIs.
-_WEB_SEARCH_MODEL_PRIORITY = [
-    "meta/llama-4-maverick-17b-128e-instruct",    # Latest Meta architecture
-    "openai/gpt-oss-120b",                         # Largest OSS model on NVIDIA
-    "nvidia/nemotron-3-super-120b-a12b",           # Large NVIDIA MoE
-    "mistralai/mistral-large-3-675b-instruct-2512",# Top Mistral
-    "meta/llama-3.3-70b-instruct",                 # Reliable flagship fallback
-]
-
+# NOTE: get_best_subagent_model() is defined in the sub-agent section below.
+# It auto-selects the best available up-to-date NVIDIA model for ALL sub-agents
+# (web search, bug scanner, etc.) — a single unified latest-model selector.
+# get_web_search_model() is kept as an alias for backward compatibility.
 def get_web_search_model() -> str:
-    """
-    Auto-select the best available NVIDIA model for the Web Search sub-agent.
-    Picks the highest-priority model present in the current model list.
-    This ensures the web agent always uses the most up-to-date model
-    regardless of what year or version is added to the list.
-    """
-    all_ids = []
-    for models in AGENT_MODELS_CATEGORIZED.values():
-        all_ids.extend(m for m, _ in models)
-    for model_id in _WEB_SEARCH_MODEL_PRIORITY:
-        if model_id in all_ids:
-            return model_id
-    # Ultimate fallback: first flagship model
-    flagship = AGENT_MODELS_CATEGORIZED.get("Flagship", [])
-    return flagship[0][0] if flagship else DEFAULT_MODEL
+    """Alias for get_best_subagent_model() — kept for backward compatibility."""
+    return get_best_subagent_model()
 
 # --- ALL SLASH COMMANDS ---
 COMMANDS = {
@@ -1310,14 +1290,14 @@ def _agent_worker(agent_def: dict, task: str, agent_obj: dict) -> None:
     icon        = agent_def["icon"]
     color       = agent_def["color"]
     # Use the user's currently selected model, not a hardcoded agent model.
-    # The 'model' field in AGENT_DEFINITIONS is kept as metadata only.
     agent_model = MODEL
     model_label = get_model_label(MODEL)
-    header = f"[bold {color}]{name}[/bold {color}]"
+    header      = f"[bold {color}]{name}[/bold {color}]"
+
+    # Store task in agent_obj so sub-agents can access it for context
+    agent_obj["task"] = task
 
     # Connect using the appropriate API for the user's chosen model.
-    # Third-party models (DeepSeek, Kimi) use their own APIs;
-    # NVIDIA-hosted models use the NVIDIA API.
     THIRD_PARTY_ROUTING = {
         "deepseek-chat":     {"key": "DEEPSEEK_API_KEY", "base_url": "https://api.deepseek.com/v1"},
         "deepseek-reasoner": {"key": "DEEPSEEK_API_KEY", "base_url": "https://api.deepseek.com/v1"},
@@ -1326,9 +1306,9 @@ def _agent_worker(agent_def: dict, task: str, agent_obj: dict) -> None:
         "moonshot-v1-128k":  {"key": "KIMI_API_KEY",     "base_url": "https://api.moonshot.cn/v1"},
     }
     try:
-        config  = load_config()
+        config = load_config()
         if agent_model in THIRD_PARTY_ROUTING:
-            routing = THIRD_PARTY_ROUTING[agent_model]
+            routing  = THIRD_PARTY_ROUTING[agent_model]
             api_key  = config.get(routing["key"])
             base_url = routing["base_url"]
             provider = routing["key"].replace("_API_KEY", "")
@@ -1341,21 +1321,31 @@ def _agent_worker(agent_def: dict, task: str, agent_obj: dict) -> None:
         from openai import OpenAI as _OAI
         client = _OAI(base_url=base_url, api_key=api_key)
     except Exception as e:
-        agent_obj["status"] = "error"
+        agent_obj["status"]      = "error"
         agent_obj["last_output"] = f"API error: {e}"
         console.print(f"{header} [red]Failed to connect: {e}[/red]")
         return
 
-    sys_msg = agent_def["system"]
+    sys_msg  = agent_def["system"]
     messages = [
-        {"role": "system",  "content": sys_msg},
-        {"role": "user",    "content": task},
+        {"role": "system", "content": sys_msg},
+        {"role": "user",   "content": task},
     ]
     agent_obj["status"] = "running"
     console.print(f"\n{header} [dim]Starting task using [cyan]{model_label}[/cyan]:[/dim] {task}\n")
 
+    # Show which sub-agents are assigned to this agent type
+    assigned_subs = AGENT_SUBAGENTS.get(name, [])
+    if assigned_subs:
+        sub_names = ", ".join(
+            SUBAGENT_DEFINITIONS[k]["name"]
+            for k in assigned_subs
+            if k in SUBAGENT_DEFINITIONS
+        )
+        console.print(f"{header} [dim]Sub-agents on standby: [bright_cyan]{sub_names}[/bright_cyan][/dim]\n")
+
     tool_calls_made = 0
-    max_tool_calls = 20
+    max_tool_calls  = 20
 
     while not agent_obj.get("stop_flag", False):
         try:
@@ -1371,11 +1361,11 @@ def _agent_worker(agent_def: dict, task: str, agent_obj: dict) -> None:
             )
         except Exception as e:
             console.print(f"{header} [red]API error: {e}[/red]")
-            agent_obj["status"] = "error"
+            agent_obj["status"]      = "error"
             agent_obj["last_output"] = str(e)
             break
 
-        full_content  = ""
+        full_content   = ""
         tool_calls_acc: dict = {}
         for chunk in stream_iter:
             if agent_obj.get("stop_flag", False):
@@ -1388,9 +1378,7 @@ def _agent_worker(agent_def: dict, task: str, agent_obj: dict) -> None:
                 full_content += delta.content
                 print(delta.content, end="", flush=True)
 
-            # Accumulate tool calls
             if delta.tool_calls:
-                has_tool_calls = True
                 for tc in delta.tool_calls:
                     idx = tc.index
                     if idx not in tool_calls_acc:
@@ -1403,7 +1391,7 @@ def _agent_worker(agent_def: dict, task: str, agent_obj: dict) -> None:
                         if tc.function.arguments:
                             tool_calls_acc[idx]["args"] += tc.function.arguments
 
-        # Detect text-based tool calls
+        # Detect text-embedded tool calls (Llama quirk)
         has_tool_calls = bool(tool_calls_acc)
         if not has_tool_calls and full_content.strip():
             parsed = _try_parse_text_tool_call(full_content)
@@ -1411,46 +1399,35 @@ def _agent_worker(agent_def: dict, task: str, agent_obj: dict) -> None:
                 has_tool_calls = True
                 tool_calls_acc = {0: {"id": "text_tc_0", "name": parsed["name"], "args": json.dumps(parsed["args"])}}
 
-        # Render text response
+        # ── Text response path ────────────────────────────────────────────────
         clean = _strip_thinking(full_content)
         if not has_tool_calls and clean:
-            console.print(f"{header}")
+            console.print(f"\n{header}")
             console.print(Markdown(clean))
             agent_obj["last_output"] = clean[:200]
 
-            # ── Auto-detect web search requests ──────────────────────────────
-            # If the agent's response mentions searching online, automatically
-            # spawn a parallel Web Search sub-agent to handle it.
-            web_task = _detect_web_search_need(clean)
-            if web_task and not agent_obj.get("_web_search_launched"):
-                agent_obj["_web_search_launched"] = True
-                ws_result = spawn_web_search_subagent(web_task)
-                # Wait for the web search to complete (max 120s)
-                ws_thread = ws_result.get("_thread")
-                if ws_thread:
-                    ws_thread.join(timeout=120)
-                findings = ws_result.get("findings")
-                if findings:
-                    # Inject web search findings as a system-level message
-                    # so the main agent can incorporate them
-                    messages.append({
-                        "role": "user",
-                        "content": (
-                            f"[Web Search Sub-Agent Results]\n\n"
-                            f"The parallel Web Search sub-agent has completed and found the following:\n\n"
-                            f"{findings}\n\n"
-                            f"Please use these findings to continue your task."
-                        ),
-                    })
-                    continue  # loop back so main agent can use the findings
+            # ── Step 1: Check keyword-triggered sub-agents ────────────────────
+            # e.g. "web_search" for Coder when it says "find a library",
+            #      "cve_lookup" for Security Guard when it mentions a CVE.
+            if _check_keyword_subagents(clean, name, agent_obj, messages, header):
+                continue  # sub-agent ran, loop back for main agent to use results
 
-        # Execute tool calls
+            # ── Step 2: Run post-completion sub-agents (once only) ────────────
+            # e.g. "bug_scanner" for Coder after code is written,
+            #      "diff_analyzer" for Git Agent after commits,
+            #      "security_scanner" for Reviewer.
+            if _run_post_completion_subagents(clean, name, agent_obj, messages, header, task):
+                continue  # sub-agent found issues, loop back for main agent
+
+            # ── Step 3: Truly done — no sub-agents triggered ──────────────────
+            break
+
+        # ── Tool call execution path ──────────────────────────────────────────
         if has_tool_calls and tool_calls_acc:
             if tool_calls_made >= max_tool_calls:
                 console.print(f"{header} [yellow]Tool call limit reached ({max_tool_calls}).[/yellow]")
                 break
 
-            # Add assistant message
             tc_list = []
             for idx in sorted(tool_calls_acc):
                 tc = tool_calls_acc[idx]
@@ -1471,15 +1448,12 @@ def _agent_worker(agent_def: dict, task: str, agent_obj: dict) -> None:
                 console.print(f"{header} [dim]→ {fn_name}({', '.join(f'{k}={repr(v)[:40]}' for k,v in fn_args.items())})[/dim]")
 
                 if fn_name == "run_command":
-                    # Agents always run in full autopilot — no approval prompt
                     cmd_to_run = fn_args.get("command", "")
-                    # Still warn on destructive commands in the output
                     is_destr, destr_desc = is_destructive_command(cmd_to_run)
                     if is_destr:
                         console.print(f"{header} [yellow]Destructive command: {destr_desc}[/yellow]")
                     tool_result = run_command_impl(cmd_to_run)
                 else:
-                    # All other tools: use the shared dispatcher
                     tool_result = dispatch_tool(fn_name, fn_args)
 
                 agent_obj["last_output"] = f"{fn_name}: {tool_result[:100]}"
@@ -1492,7 +1466,7 @@ def _agent_worker(agent_def: dict, task: str, agent_obj: dict) -> None:
 
             continue  # loop back for next AI response
 
-        # No more tool calls — agent is done
+        # Neither text nor tool calls — unexpected empty response, stop
         break
 
     agent_obj["status"] = "done" if not agent_obj.get("stop_flag") else "stopped"
@@ -1504,132 +1478,337 @@ def _agent_worker(agent_def: dict, task: str, agent_obj: dict) -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# WEB SEARCH SUB-AGENT
+# COMPREHENSIVE SUB-AGENT SYSTEM
 # ─────────────────────────────────────────────────────────────────────────────
-# Automatically spawned in parallel when a main agent needs to search online.
-# Uses the best available up-to-date NVIDIA model (auto-selected, never
-# third-party APIs). Reports findings back via a shared result dict.
+# Sub-agents run silently in background — output is NOT printed to console.
+# Only status lines like "[ Sub-agent: Bug Scanner is working... ]" are shown.
+# Results are passed directly to the main agent/model which incorporates them.
+# All sub-agents use the latest, most up-to-date NVIDIA models (auto-selected).
 
-_WEB_SEARCH_KEYWORDS = [
-    "search online", "search the web", "search for best", "find template",
-    "find the best", "look up online", "find animation", "find colour",
-    "find color", "best template", "search internet", "look up on web",
-    "find on the web", "best library", "find plugin", "search for",
-    "look for online", "find examples online",
+
+# ── Latest model priority for sub-agents ──────────────────────────────────────
+# Ordered by: newest architecture first, then largest size.
+# Never picks 2023/2024-era outdated models.
+_SUBAGENT_MODEL_PRIORITY = [
+    "meta/llama-4-maverick-17b-128e-instruct",     # Llama 4 — newest Meta arch
+    "openai/gpt-oss-120b",                          # Largest OSS on NVIDIA
+    "nvidia/nemotron-3-super-120b-a12b",            # Latest large NVIDIA MoE
+    "nvidia/llama-3.3-nemotron-super-49b-v1.5",    # NVIDIA Nemotron Super
+    "mistralai/mistral-large-3-675b-instruct-2512", # Latest Mistral flagship
+    "meta/llama-3.3-70b-instruct",                  # Reliable fallback
 ]
 
-_WEB_SEARCH_SYSTEM = (
-    "You are the Web Search sub-agent inside Biju CLI. Your job is to search the web "
-    "and find the best resources, templates, animations, color palettes, and libraries "
-    "as requested.\n"
-    "Use run_command with curl to fetch web pages (e.g. `curl -s 'https://...'`).\n"
-    "Search for GitHub repos, CDN links, CodePen examples, and documentation pages.\n"
-    "Always try multiple search approaches:\n"
-    "  1. Fetch search engine results via curl (e.g. DuckDuckGo lite)\n"
-    "  2. Fetch the top result pages directly\n"
-    "  3. Look for CDN/npm links for any libraries you find\n"
-    "Produce a clear FINDINGS section at the end with:\n"
-    "  - Name and URL of each resource found\n"
-    "  - Why it is recommended (features, popularity, recency)\n"
-    "  - A ready-to-use code snippet or CDN link where applicable\n"
-    "Be specific and actionable. Do not guess — only report what you actually found."
-)
 
-
-def _web_search_worker(task: str, result_store: dict) -> None:
+def get_best_subagent_model() -> str:
     """
-    Background thread: runs a web search using the best available NVIDIA model.
-    Stores results in result_store['findings'] when done.
+    Auto-select the best available NVIDIA model for sub-agents.
+    Always picks the most up-to-date model from the current list —
+    never 2023/2024-era outdated models.
+    Priority: newest architecture → largest size → fallback.
     """
-    ws_model = get_web_search_model()
-    ws_label = get_model_label(ws_model)
-    header   = "[bold bright_cyan]Web Search[/bold bright_cyan]"
+    all_ids = []
+    for models in AGENT_MODELS_CATEGORIZED.values():
+        all_ids.extend(m for m, _ in models)
+    for model_id in _SUBAGENT_MODEL_PRIORITY:
+        if model_id in all_ids:
+            return model_id
+    flagship = AGENT_MODELS_CATEGORIZED.get("Flagship", [])
+    return flagship[0][0] if flagship else DEFAULT_MODEL
 
+
+# ── Sub-agent definitions ─────────────────────────────────────────────────────
+# trigger: "keyword" — spawned when agent response contains matching keywords
+# trigger: "post_completion" — spawned after agent delivers its final response
+SUBAGENT_DEFINITIONS: dict[str, dict] = {
+
+    "web_search": {
+        "name": "Web Search",
+        "trigger": "keyword",
+        "keywords": [
+            "search online", "search the web", "search for best", "find template",
+            "find the best", "look up online", "find animation", "find colour",
+            "find color", "best template", "search internet", "find on the web",
+            "best library", "find plugin", "look for online", "find examples",
+            "find documentation", "look it up", "search for", "find a good",
+            "find the latest", "fetch from web", "download from",
+        ],
+        "system": (
+            "You are a Web Search sub-agent. Your sole job is to search the web "
+            "and return precise, usable results.\n"
+            "Use run_command with curl:\n"
+            "  - DuckDuckGo: curl -sL 'https://lite.duckduckgo.com/lite/?q=QUERY'\n"
+            "  - GitHub search: curl -sL 'https://api.github.com/search/repositories?q=QUERY&sort=stars'\n"
+            "  - Fetch a page: curl -sL 'https://...'\n"
+            "Try at least 2-3 different searches. Fetch the top result pages directly.\n"
+            "Return a concise FINDINGS section with:\n"
+            "  - Resource name and direct URL\n"
+            "  - Why it is the best choice (stars, recency, features)\n"
+            "  - Ready-to-use CDN link or code snippet\n"
+            "Be factual. Only report what you actually found via curl."
+        ),
+    },
+
+    "bug_scanner": {
+        "name": "Bug Scanner",
+        "trigger": "post_completion",
+        "system": (
+            "You are a Bug Scanner sub-agent. Scan the code described in the task for bugs.\n"
+            "Use read_file and search_in_files to examine actual source files.\n"
+            "Look for:\n"
+            "  - Logic errors and off-by-one issues\n"
+            "  - Unhandled exceptions and missing error handling\n"
+            "  - None/null dereferences\n"
+            "  - Incorrect API usage or wrong method signatures\n"
+            "  - Infinite loops or missing break conditions\n"
+            "  - Type mismatches\n"
+            "Return a BUGS FOUND section with severity (CRITICAL/HIGH/MEDIUM/LOW).\n"
+            "If no bugs, return: CLEAN — no bugs found, with a brief explanation."
+        ),
+    },
+
+    "summarizer": {
+        "name": "Summarizer",
+        "trigger": "post_completion",
+        "system": (
+            "You are a Summarizer sub-agent. Condense the findings into a clear, "
+            "structured summary that the main agent can present to the user.\n"
+            "Extract the most important points.\n"
+            "Format as numbered bullet points with clear headers.\n"
+            "Remove redundancy. Keep it brief but complete and actionable."
+        ),
+    },
+
+    "diff_analyzer": {
+        "name": "Diff Analyzer",
+        "trigger": "post_completion",
+        "system": (
+            "You are a Diff Analyzer sub-agent. Run git_diff and git_status to analyze "
+            "what changed in the repository.\n"
+            "Look for:\n"
+            "  - Breaking changes to public APIs or interfaces\n"
+            "  - Missing tests for new functionality\n"
+            "  - Accidentally removed important code or logic\n"
+            "  - Debug code left in (print, console.log, TODO, FIXME, breakpoint)\n"
+            "  - Merge conflict markers left in files (<<<<<<<, =======, >>>>>>>)\n"
+            "  - Config or secret files accidentally included\n"
+            "Return a DIFF ANALYSIS report. If everything looks clean, say so."
+        ),
+    },
+
+    "code_analyzer": {
+        "name": "Code Analyzer",
+        "trigger": "post_completion",
+        "system": (
+            "You are a Code Analyzer sub-agent. Analyze code quality after changes.\n"
+            "Use read_file to examine files that were recently modified.\n"
+            "Check for:\n"
+            "  - High cyclomatic complexity (deeply nested conditions)\n"
+            "  - Duplicate code blocks that should be refactored\n"
+            "  - Functions that are too long (>50 lines)\n"
+            "  - Missing docstrings or comments on public functions\n"
+            "  - Poor variable/function naming\n"
+            "  - Unused imports or dead code\n"
+            "Return a CODE QUALITY REPORT with specific file locations and suggestions."
+        ),
+    },
+
+    "security_scanner": {
+        "name": "Security Scanner",
+        "trigger": "post_completion",
+        "system": (
+            "You are a Security Scanner sub-agent. Scan for security vulnerabilities.\n"
+            "Use search_in_files to look through the codebase for:\n"
+            "  - Hardcoded secrets: API keys, passwords, tokens, private keys\n"
+            "  - SQL injection: f-string queries, string.format() in SQL\n"
+            "  - Command injection: shell=True with variables, os.system() with input\n"
+            "  - Path traversal: unsanitized file paths from user input\n"
+            "  - Insecure deserialization: pickle.loads, yaml.load without Loader\n"
+            "  - XSS risks: unescaped HTML output, innerHTML with user data\n"
+            "  - Weak crypto: MD5/SHA1 for passwords, hardcoded salts\n"
+            "  - Debug modes left on: DEBUG=True, FLASK_DEBUG=1\n"
+            "Return a SECURITY REPORT with severity levels and file locations."
+        ),
+    },
+
+    "cve_lookup": {
+        "name": "CVE Lookup",
+        "trigger": "keyword",
+        "keywords": [
+            "vulnerability", "cve", "exploit", "security issue", "patch version",
+            "affected version", "security advisory", "zero-day", "security flaw",
+        ],
+        "system": (
+            "You are a CVE Lookup sub-agent. Search for CVE details online.\n"
+            "Use curl to check:\n"
+            "  - NVD: curl -sL 'https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch=QUERY'\n"
+            "  - GitHub advisories: curl -sL 'https://api.github.com/advisories?q=QUERY'\n"
+            "Return CVE ID, severity score (CVSS), affected versions, and fix/mitigation."
+        ),
+    },
+
+    "dependency_analyzer": {
+        "name": "Dependency Analyzer",
+        "trigger": "post_completion",
+        "system": (
+            "You are a Dependency Analyzer sub-agent. Analyze project dependencies.\n"
+            "Use list_dir and read_file to find and read:\n"
+            "  - package.json / package-lock.json\n"
+            "  - requirements.txt / pyproject.toml / setup.py\n"
+            "  - Gemfile, go.mod, Cargo.toml, pom.xml\n"
+            "Look for:\n"
+            "  - Packages pinned to very old versions\n"
+            "  - Known vulnerable packages (check with curl against advisories)\n"
+            "  - Conflicting version requirements\n"
+            "  - Unused dependencies that can be removed\n"
+            "Return a DEPENDENCY REPORT with specific package names and versions."
+        ),
+    },
+
+    "duplicate_finder": {
+        "name": "Duplicate Finder",
+        "trigger": "keyword",
+        "keywords": [
+            "find duplicates", "clean up", "remove duplicates", "dedup",
+            "duplicate files", "redundant code",
+        ],
+        "system": (
+            "You are a Duplicate Finder sub-agent. Locate duplicate/redundant code and files.\n"
+            "Use search_in_files and list_dir to find:\n"
+            "  - Files with the same or very similar names in different directories\n"
+            "  - Copy-pasted code blocks that appear in multiple files\n"
+            "  - Redundant configuration or utility functions\n"
+            "Return a DUPLICATES FOUND report with exact file paths and line numbers."
+        ),
+    },
+
+    "command_optimizer": {
+        "name": "Command Optimizer",
+        "trigger": "post_completion",
+        "system": (
+            "You are a Command Optimizer sub-agent. Review shell commands for improvements.\n"
+            "Analyze the commands used in this task and suggest:\n"
+            "  - More efficient alternatives (e.g. find + xargs vs. for loop)\n"
+            "  - Safer flags and options\n"
+            "  - Better error handling (set -e, set -o pipefail)\n"
+            "  - Potential issues with the commands as written\n"
+            "  - Missing quoting that could cause word-splitting bugs\n"
+            "Return an OPTIMIZATION REPORT with specific before/after examples."
+        ),
+    },
+}
+
+
+# ── Which sub-agents each main agent uses ─────────────────────────────────────
+AGENT_SUBAGENTS: dict[str, list[str]] = {
+    "Researcher":     ["web_search", "summarizer"],
+    "Coder":          ["web_search", "bug_scanner"],
+    "Git Agent":      ["diff_analyzer"],
+    "File Agent":     ["duplicate_finder"],
+    "Test Runner":    ["bug_scanner", "code_analyzer"],
+    "Shell Agent":    ["command_optimizer"],
+    "Repo Scout":     ["dependency_analyzer"],
+    "Patch Editor":   ["bug_scanner"],
+    "Reviewer":       ["security_scanner"],
+    "Security Guard": ["cve_lookup"],
+}
+
+
+def _run_subagent_silent(sa_def: dict, task: str, header: str) -> str:
+    """
+    Run a sub-agent completely silently — no output is printed to the terminal.
+    Shows only a brief status line before and after.
+    Returns the sub-agent's findings as a plain string for the main agent.
+    """
+    sa_name  = sa_def["name"]
+    sa_model = get_best_subagent_model()
+    sa_label = get_model_label(sa_model)
+
+    # ── Status: sub-agent is starting ────────────────────────────────────────
     console.print(
-        f"\n{header} [dim]Starting parallel web search using "
-        f"[cyan]{ws_label}[/cyan] (auto-selected)…[/dim]\n"
+        f"{header} [dim bright_cyan]"
+        f"[ Sub-agent: {sa_name} is working on your task using {sa_label}… ][/dim bright_cyan]"
     )
 
+    # ── Connect (always NVIDIA for sub-agents — latest model is always NVIDIA) ─
     try:
         config  = load_config()
         api_key = config.get("NVIDIA_API_KEY")
         if not api_key:
-            result_store["findings"] = "Error: No NVIDIA_API_KEY for web search sub-agent."
-            return
+            return f"Error: No NVIDIA_API_KEY for {sa_name} sub-agent."
         from openai import OpenAI as _OAI
         client = _OAI(base_url="https://integrate.api.nvidia.com/v1", api_key=api_key)
     except Exception as e:
-        result_store["findings"] = f"Error connecting for web search: {e}"
-        return
+        return f"Error connecting for {sa_name}: {e}"
 
-    messages = [
-        {"role": "system", "content": _WEB_SEARCH_SYSTEM},
+    messages: list[dict] = [
+        {"role": "system", "content": sa_def["system"]},
         {"role": "user",   "content": task},
     ]
 
     tool_calls_made = 0
-    max_tool_calls  = 10
+    max_tool_calls  = 8
+    findings        = ""
 
     while True:
+        # ── API call ─────────────────────────────────────────────────────────
         try:
             stream_iter = client.chat.completions.create(
-                model=ws_model,
+                model=sa_model,
                 messages=messages,
                 tools=tools,
                 tool_choice="auto",
                 temperature=0.2,
-                max_tokens=4096,
+                max_tokens=2048,
                 stream=True,
                 timeout=60.0,
             )
         except Exception as e:
-            result_store["findings"] = f"Web search API error: {e}"
-            return
+            findings = f"{sa_name} sub-agent API error: {e}"
+            break
 
+        # ── Stream tokens — SILENTLY (all text buffered, not printed) ────────
         full_content   = ""
         tool_calls_acc: dict = {}
 
-        for chunk in stream_iter:
-            delta = chunk.choices[0].delta if chunk.choices else None
-            if not delta:
-                continue
-            if delta.content:
-                full_content += delta.content
-                print(delta.content, end="", flush=True)
-            if delta.tool_calls:
-                for tc in delta.tool_calls:
-                    idx = tc.index
-                    if idx not in tool_calls_acc:
-                        tool_calls_acc[idx] = {"id": "", "name": "", "args": ""}
-                    if tc.id:
-                        tool_calls_acc[idx]["id"] += tc.id
-                    if tc.function:
-                        if tc.function.name:
-                            tool_calls_acc[idx]["name"] += tc.function.name
-                        if tc.function.arguments:
-                            tool_calls_acc[idx]["args"] += tc.function.arguments
+        try:
+            for chunk in stream_iter:
+                delta = chunk.choices[0].delta if chunk.choices else None
+                if not delta:
+                    continue
+                if delta.content:
+                    full_content += delta.content   # ← no print — silent
+                if delta.tool_calls:
+                    for tc in delta.tool_calls:
+                        idx = tc.index
+                        if idx not in tool_calls_acc:
+                            tool_calls_acc[idx] = {"id": "", "name": "", "args": ""}
+                        if tc.id:
+                            tool_calls_acc[idx]["id"] += tc.id
+                        if tc.function:
+                            if tc.function.name:
+                                tool_calls_acc[idx]["name"] += tc.function.name
+                            if tc.function.arguments:
+                                tool_calls_acc[idx]["args"] += tc.function.arguments
+        except Exception:
+            pass
 
         has_tool_calls = bool(tool_calls_acc)
-        clean = _strip_thinking(full_content)
+        clean          = _strip_thinking(full_content)
 
         if not has_tool_calls:
-            # Final text response — this is the search findings
-            if clean:
-                console.print(f"\n{header}")
-                console.print(Markdown(clean))
-                result_store["findings"] = clean
+            findings = clean
             break
 
         if tool_calls_made >= max_tool_calls:
-            result_store["findings"] = clean or "Web search reached tool call limit."
+            findings = clean or f"{sa_name} reached tool-call limit."
             break
 
-        # Execute tool calls
+        # ── Execute tools silently (no output printed) ────────────────────────
         tc_list = []
         for idx in sorted(tool_calls_acc):
             tc = tool_calls_acc[idx]
             tc_list.append({
-                "id": tc["id"] or f"ws_tc_{idx}",
+                "id": tc["id"] or f"sa_tc_{idx}",
                 "type": "function",
                 "function": {"name": tc["name"], "arguments": tc["args"]},
             })
@@ -1641,53 +1820,131 @@ def _web_search_worker(task: str, result_store: dict) -> None:
                 fn_args = json.loads(tc["function"]["arguments"] or "{}")
             except json.JSONDecodeError:
                 fn_args = {}
-            console.print(f"{header} [dim]→ {fn_name}[/dim]")
-            tool_result = run_command_impl(fn_args.get("command", "")) if fn_name == "run_command" \
-                          else dispatch_tool(fn_name, fn_args)
+            # Execute silently — result fed back to sub-agent, not printed
+            tool_result = (
+                run_command_impl(fn_args.get("command", ""))
+                if fn_name == "run_command"
+                else dispatch_tool(fn_name, fn_args)
+            )
             messages.append({"role": "tool", "tool_call_id": tc["id"], "content": tool_result})
             tool_calls_made += 1
 
-    result_store.setdefault("findings", clean or "No findings returned.")
-    console.print(f"\n{header} [dim]Web search complete.[/dim]\n")
-
-
-def spawn_web_search_subagent(task: str) -> dict:
-    """
-    Spawn a parallel Web Search sub-agent in a background thread.
-    Returns a shared dict; check result['findings'] when the thread completes.
-    The caller can inject result['findings'] into the main agent's messages.
-    """
-    result_store: dict = {"findings": None}
-    t = threading.Thread(
-        target=_web_search_worker,
-        args=(task, result_store),
-        daemon=True,
+    # ── Status: sub-agent is done ─────────────────────────────────────────────
+    console.print(
+        f"{header} [dim bright_cyan][ Sub-agent: {sa_name} complete — passing results to main agent ][/dim bright_cyan]"
     )
-    t.start()
-    result_store["_thread"] = t
-    console.print(Panel(
-        f"[bold bright_cyan]Web Search sub-agent[/bold bright_cyan] spawned in parallel\n"
-        f"[dim]Task: {task}\n"
-        f"Model: [cyan]{get_model_label(get_web_search_model())}[/cyan] (auto-selected)[/dim]",
-        border_style="bright_cyan", expand=False,
-    ))
-    return result_store
+    return findings or f"No findings from {sa_name}."
 
 
-def _detect_web_search_need(text: str) -> str | None:
+def _check_keyword_subagents(
+    clean: str,
+    agent_name: str,
+    agent_obj: dict,
+    messages: list,
+    header: str,
+) -> bool:
     """
-    Detect if the agent's response text contains a request to search online.
-    Returns a task string if detected, or None otherwise.
+    Check if agent's text response triggers any keyword-based sub-agents.
+    Runs matching sub-agents silently and injects findings into messages.
+    Returns True if a sub-agent was triggered (caller should `continue` the loop).
     """
-    text_lower = text.lower()
-    for kw in _WEB_SEARCH_KEYWORDS:
-        if kw in text_lower:
-            # Extract the relevant sentence containing the keyword as the task
-            for sentence in text.split("."):
-                if kw in sentence.lower():
-                    return sentence.strip()
-            return f"Search online for: {kw} (from agent request)"
-    return None
+    allowed = AGENT_SUBAGENTS.get(agent_name, [])
+    clean_lower = clean.lower()
+
+    for sa_key in allowed:
+        sa_def = SUBAGENT_DEFINITIONS.get(sa_key)
+        if not sa_def or sa_def.get("trigger") != "keyword":
+            continue
+        if agent_obj.get(f"_sa_{sa_key}_done"):
+            continue  # already ran this sub-agent
+
+        task_match = None
+        for kw in sa_def.get("keywords", []):
+            if kw in clean_lower:
+                # Extract the sentence that contains the keyword
+                for sentence in clean.split("."):
+                    if kw in sentence.lower():
+                        task_match = sentence.strip()
+                        break
+                if not task_match:
+                    task_match = f"From agent context: {kw}"
+                break
+
+        if task_match:
+            agent_obj[f"_sa_{sa_key}_done"] = True
+            full_task = f"Agent task: {agent_obj.get('task', '')}\n\nContext: {task_match}"
+            findings  = _run_subagent_silent(sa_def, full_task, header)
+            if findings:
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        f"[{sa_def['name']} Sub-Agent Results]\n\n"
+                        f"{findings}\n\n"
+                        f"Please incorporate these findings into your response and continue the task."
+                    ),
+                })
+            return True  # caller should `continue`
+
+    return False
+
+
+def _run_post_completion_subagents(
+    clean: str,
+    agent_name: str,
+    agent_obj: dict,
+    messages: list,
+    header: str,
+    original_task: str,
+) -> bool:
+    """
+    Run post-completion sub-agents (bug scanner, code analyzer, etc.).
+    These run once after the main agent delivers its final response.
+    Returns True if any sub-agent found issues (caller should `continue` loop).
+    """
+    if agent_obj.get("_post_completion_done"):
+        return False  # only run once
+
+    agent_obj["_post_completion_done"] = True
+    allowed = AGENT_SUBAGENTS.get(agent_name, [])
+
+    post_agents = [
+        SUBAGENT_DEFINITIONS[k]
+        for k in allowed
+        if k in SUBAGENT_DEFINITIONS and SUBAGENT_DEFINITIONS[k].get("trigger") == "post_completion"
+    ]
+
+    if not post_agents:
+        return False
+
+    # Run all post-completion sub-agents (sequentially, each silently)
+    all_findings: list[str] = []
+    task_ctx = f"Original task: {original_task}\n\nAgent final response:\n{clean}"
+
+    for sa_def in post_agents:
+        findings = _run_subagent_silent(sa_def, task_ctx, header)
+        # Only include if there are actual findings (not just "CLEAN" responses)
+        f_lower = findings.lower()
+        is_clean = (
+            "no bugs" in f_lower or "clean" in f_lower
+            or "no issues" in f_lower or "no findings" in f_lower
+            or "nothing found" in f_lower or "looks good" in f_lower
+        )
+        if findings and not is_clean:
+            all_findings.append(f"[{sa_def['name']} Sub-Agent]\n{findings}")
+
+    if all_findings:
+        messages.append({
+            "role": "user",
+            "content": (
+                "Sub-agent analysis completed. The following issues were found:\n\n"
+                + "\n\n---\n\n".join(all_findings)
+                + "\n\nPlease review and address all findings above."
+            ),
+        })
+        return True  # caller should `continue` so main agent can address issues
+
+    return False
+
 
 
 def _spawn_agent(agent_def: dict, task: str) -> None:
