@@ -42,6 +42,8 @@ AGENT_MODELS_CATEGORIZED: dict[str, list[tuple[str, str]]] = {
     "Third-Party APIs": [
         ("deepseek-chat",  "DeepSeek V3 (DeepSeek API). Brilliant at coding and math."),
         ("moonshot-v1-8k", "Kimi AI (Moonshot API). Great context window."),
+        ("anthropic/claude-3.5-sonnet", "Claude 3.5 Sonnet (OpenRouter). Top-tier coding & reasoning."),
+        ("google/gemini-pro-1.5",       "Gemini Pro 1.5 (OpenRouter). Massive context window."),
     ],
     "Vision & Multimodal": [
         ("meta/llama-3.2-90b-vision-instruct",   "Llama 3.2 90B Vision — Large vision model."),
@@ -74,6 +76,8 @@ MODEL_LABELS: dict[str, str] = {
     "upstage/solar-10.7b-instruct":                  "Solar 10.7B",
     "deepseek-chat":                                 "DeepSeek V3",
     "moonshot-v1-8k":                                "Kimi (8K)",
+    "anthropic/claude-3.5-sonnet":                  "Claude 3.5 Sonnet",
+    "google/gemini-pro-1.5":                        "Gemini Pro 1.5",
     "meta/llama-3.2-90b-vision-instruct":            "Llama 3.2 90B Vision",
     "meta/llama-3.2-11b-vision-instruct":            "Llama 3.2 11B Vision",
 }
@@ -85,6 +89,8 @@ THIRD_PARTY_MODELS: dict[str, dict] = {
     "moonshot-v1-8k":   {"key": "KIMI_API_KEY",     "base_url": "https://api.moonshot.cn/v1",    "provider": "Kimi"},
     "moonshot-v1-32k":  {"key": "KIMI_API_KEY",     "base_url": "https://api.moonshot.cn/v1",    "provider": "Kimi"},
     "moonshot-v1-128k": {"key": "KIMI_API_KEY",     "base_url": "https://api.moonshot.cn/v1",    "provider": "Kimi"},
+    "anthropic/claude-3.5-sonnet": {"key": "OPENROUTER_API_KEY", "base_url": "https://openrouter.ai/api/v1", "provider": "OpenRouter"},
+    "google/gemini-pro-1.5":       {"key": "OPENROUTER_API_KEY", "base_url": "https://openrouter.ai/api/v1", "provider": "OpenRouter"},
 }
 
 NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"

@@ -93,6 +93,8 @@ AGENT_MODELS_CATEGORIZED = {
     "Third-Party APIs": [
         ("deepseek-chat",    "DeepSeek V3 (DeepSeek API). Brilliant at coding and math."),
         ("moonshot-v1-8k",   "Kimi AI (Moonshot API). Great context window."),
+        ("anthropic/claude-3.5-sonnet", "Claude 3.5 Sonnet (OpenRouter). Top-tier coding & reasoning."),
+        ("google/gemini-pro-1.5",       "Gemini Pro 1.5 (OpenRouter). Massive context window."),
     ],
     "Vision and Multimodal": [
         ("meta/llama-3.2-90b-vision-instruct",          "Llama 3.2 90B Vision — Large vision model."),
@@ -132,6 +134,8 @@ MODEL_LABELS: dict[str, str] = {
     # Third-party
     "deepseek-chat":                                "DeepSeek V3",
     "moonshot-v1-8k":                               "Kimi (8K)",
+    "anthropic/claude-3.5-sonnet":                  "Claude 3.5 Sonnet",
+    "google/gemini-pro-1.5":                        "Gemini Pro 1.5",
     # Vision
     "meta/llama-3.2-90b-vision-instruct":           "Llama 3.2 90B Vision",
     "meta/llama-3.2-11b-vision-instruct":           "Llama 3.2 11B Vision",
@@ -282,6 +286,10 @@ def get_api_client():
         api_key  = config.get("DEEPSEEK_API_KEY")
         base_url = "https://api.deepseek.com/v1"
         provider = "DeepSeek"
+    elif MODEL in ("anthropic/claude-3.5-sonnet", "google/gemini-pro-1.5"):
+        api_key = config.get("OPENROUTER_API_KEY")
+        base_url = "https://openrouter.ai/api/v1"
+        provider = "OpenRouter"
     else:
         # All other models (including deepseek-ai/*, moonshotai/*) are NVIDIA-hosted
         api_key  = config.get("NVIDIA_API_KEY")
@@ -892,14 +900,14 @@ def cmd_help():
 
 def cmd_setkey():
     console.print(Panel(
-        "[0] NVIDIA\n[1] DeepSeek\n[2] Kimi (Moonshot)",
+        "[0] NVIDIA\n[1] DeepSeek\n[2] Kimi (Moonshot)\n[3] OpenRouter",
         title="[bold cyan]Which API Key to update?[/bold cyan]",
         border_style="cyan", expand=False,
     ))
     choice = input("\n  Enter number (Enter to cancel): ").strip()
     config = load_config()
-    key_map = {"0": "NVIDIA_API_KEY", "1": "DEEPSEEK_API_KEY", "2": "KIMI_API_KEY"}
-    label_map = {"0": "NVIDIA", "1": "DeepSeek", "2": "Kimi"}
+    key_map = {"0": "NVIDIA_API_KEY", "1": "DEEPSEEK_API_KEY", "2": "KIMI_API_KEY", "3": "OPENROUTER_API_KEY"}
+    label_map = {"0": "NVIDIA", "1": "DeepSeek", "2": "Kimi", "3": "OpenRouter"}
     if choice in key_map:
         new_key = input(f"  Enter new {label_map[choice]} API Key: ").strip()
         if new_key:
@@ -1106,7 +1114,7 @@ AGENT_DEFINITIONS = [
         "model_label": "Mistral Large 3",
         "system": (
             "You are the Researcher agent inside Biju CLI. Your job is to gather information.\n"
-            "Given a task, use run_command to fetch pages with curl/wget, search with web tools, "
+            "Given a task, use run_command to fetch pages with curl/wget, search with search_web tool, "
             "read local files, and produce a clear, structured summary.\n"
             "Always cite your sources. Be concise. End with a clear FINDINGS section."
         ),
@@ -1182,6 +1190,19 @@ AGENT_DEFINITIONS = [
         ),
     },
     # ── New specialized agents (Feature 8) ─────────────────────────────
+    {
+        "name": "Repo Map Agent",
+        "icon": "🗺",
+        "color": "bright_magenta",
+        "desc": "Generates a detailed symbol-level map of the codebase",
+        "model": "meta/llama-3.3-70b-instruct",
+        "model_label": "Llama 3.3 70B",
+        "system": (
+            "You are the Repo Map agent. Your job is to create a deep map of the codebase.\\n"
+            "Use get_repo_map to extract symbols (classes, methods, functions) across all files.\\n"
+            "Produce a structured map that helps other agents or users navigate the code."
+        ),
+    },
     {
         "name": "Repo Scout",
         "icon": "🧐",
@@ -1300,6 +1321,8 @@ def _agent_worker(agent_def: dict, task: str, agent_obj: dict) -> None:
         "moonshot-v1-8k":    {"key": "KIMI_API_KEY",     "base_url": "https://api.moonshot.cn/v1"},
         "moonshot-v1-32k":   {"key": "KIMI_API_KEY",     "base_url": "https://api.moonshot.cn/v1"},
         "moonshot-v1-128k":  {"key": "KIMI_API_KEY",     "base_url": "https://api.moonshot.cn/v1"},
+        "anthropic/claude-3.5-sonnet": {"key": "OPENROUTER_API_KEY", "base_url": "https://openrouter.ai/api/v1"},
+        "google/gemini-pro-1.5":       {"key": "OPENROUTER_API_KEY", "base_url": "https://openrouter.ai/api/v1"},
     }
     try:
         config = load_config()

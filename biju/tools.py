@@ -448,6 +448,66 @@ def git_diff(staged: bool = False) -> str:
         return f"Error: {e}"
 
 
+def get_repo_map(cwd: str) -> str:
+    """
+    Generate a high-level map of the repository, including key files and symbols.
+    Useful for understanding the project structure and identifying important code.
+    """
+    import ast
+    root = Path(cwd)
+    map_parts = []
+
+    for path in root.rglob("*"):
+        if any(part.startswith(".") for part in path.parts) or "node_modules" in path.parts or "__pycache__" in path.parts:
+            continue
+        if path.is_file() and path.suffix in (".py", ".js", ".ts", ".go", ".rs"):
+            rel_path = path.relative_to(root)
+            map_parts.append(f"### {rel_path}")
+
+            if path.suffix == ".py":
+                try:
+                    content = path.read_text(encoding="utf-8")
+                    tree = ast.parse(content)
+                    for node in tree.body:
+                        if isinstance(node, ast.ClassDef):
+                            map_parts.append(f"  - Class: {node.name}")
+                            for subnode in node.body:
+                                if isinstance(subnode, ast.FunctionDef):
+                                    map_parts.append(f"    - Method: {subnode.name}")
+                        elif isinstance(node, ast.FunctionDef):
+                            map_parts.append(f"  - Function: {node.name}")
+                except Exception:
+                    pass
+            else:
+                try:
+                    lines = sum(1 for _ in open(path, "rb"))
+                    map_parts.append(f"  - {lines} lines")
+                except Exception:
+                    pass
+
+    return "\n".join(map_parts[:200])
+
+def search_web(query: str) -> str:
+    """Search the web using DuckDuckGo (via curl)."""
+    try:
+        import urllib.parse
+        safe_query = urllib.parse.quote(query)
+        cmd = ["curl", "-s", "-L", f"https://duckduckgo.com/html/?q={safe_query}"]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        if result.returncode != 0:
+            return f"Error: Search failed with code {result.returncode}"
+
+        import re
+        text = result.stdout
+        text = re.sub(r"<script.*?>.*?</script>", "", text, flags=re.DOTALL)
+        text = re.sub(r"<style.*?>.*?</style>", "", text, flags=re.DOTALL)
+        text = re.sub(r"<.*?>", " ", text)
+        text = re.sub(r"\s+", " ", text).strip()
+
+        return text[:5000]
+    except Exception as e:
+        return f"Error performing web search: {e}"
+
 def git_log(n: int = 10) -> str:
     """Return recent git log entries."""
     try:
@@ -511,6 +571,18 @@ def build_repo_context(cwd: str, depth: int = 2) -> str:
             pf_path = root / pf
             try:
                 content = pf_path.read_text(encoding="utf-8", errors="replace")
+                # Special handling for package.json to extract dependencies
+                if pf == "package.json":
+                    try:
+                        import json
+                        data = json.loads(content)
+                        deps = data.get("dependencies", {})
+                        dev_deps = data.get("devDependencies", {})
+                        if deps or dev_deps:
+                            summary = f"Dependencies: {list(deps.keys())}\nDevDependencies: {list(dev_deps.keys())}"
+                            parts.append(f"\n### {pf} Summary\n{summary}")
+                    except Exception:
+                        pass
                 # Truncate large files
                 if len(content) > 2000:
                     content = content[:2000] + "\n... (truncated)"
@@ -658,6 +730,11 @@ def dispatch_tool(func_name: str, args: dict) -> str:
         staged_val = args.get("staged", False)
         is_staged = staged_val if isinstance(staged_val, bool) else str(staged_val).lower() == "true"
         return git_diff(staged=is_staged)
+    elif func_name == "search_web":
+        query = args.get("query")
+        return search_web(str(query) if query is not None else "")
+    elif func_name == "get_repo_map":
+        return get_repo_map(os.getcwd())
     elif func_name == "git_log":
         n_val = args.get("n")
         return git_log(n=int(n_val) if n_val is not None else 10)
