@@ -98,8 +98,8 @@ class BijuTUI(App):
     }
     """
 
-    TITLE = "Biju — AI Terminal Engineer"
-    SUB_TITLE = "Powered by NVIDIA Free APIs"
+    TITLE = "BIJU — AI ENGINEER"
+    SUB_TITLE = "The Ultimate AI Terminal Assistant"
 
     BINDINGS = [
         Binding("ctrl+l", "clear_chat",     "Clear Chat",    show=False),
@@ -449,6 +449,7 @@ class BijuTUI(App):
     ) -> str:
         """Execute a tool, requesting permission if needed."""
         icons = {
+            "get_repo_map": "🗺", "search_web": "🔍",
             "run_command": "⚙", "read_file": "📄", "write_file": "✏",
             "edit_file": "🔧", "list_dir": "📂", "search_in_files": "🔍",
             "read_file_range": "📄", "git_status": "🌿", "git_diff": "🌿",
@@ -563,13 +564,18 @@ class BijuTUI(App):
 
         # ── Execute ───────────────────────────────────────────────────────
         out.add_tool_event(event_text)
+        sb.set_status(f"⚙ Executing {func_name}...")
 
         if func_name == "run_command":
             cmd_val = args.get("command")
-            return await self._tool_run_command(str(cmd_val) if cmd_val is not None else "")
+            res = await self._tool_run_command(str(cmd_val) if cmd_val is not None else "")
+            sb.set_status(f"⠋ {get_model_label(self._model)} is thinking...")
+            return res
         else:
             # All other tools use the shared synchronous dispatcher
-            return dispatch_tool(func_name, args)
+            res = dispatch_tool(func_name, args)
+            sb.set_status(f"⠋ {get_model_label(self._model)} is thinking...")
+            return res
 
     # ── Tool implementations ──────────────────────────────────────────────────
 

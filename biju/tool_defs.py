@@ -233,6 +233,35 @@ TOOL_SCHEMAS: list[dict] = [
     {
         "type": "function",
         "function": {
+            "name": "search_web",
+            "description": "Search the web for real-time information, news, or technical documentation.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "The search query."
+                    }
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_repo_map",
+            "description": "Generate a high-level map of the repository, including key files and symbols.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "git_log",
             "description": (
                 "Show recent git commit history. Safe, read-only."
@@ -264,5 +293,5 @@ PERMISSION_REQUIRED: set[str] = {"run_command", "write_file", "edit_file"}
 # Tools that are safe / read-only (never need permission)
 READ_ONLY_TOOLS: set[str] = {
     "read_file", "read_file_range", "list_dir", "search_in_files",
-    "git_status", "git_diff", "git_log",
+    "git_status", "git_diff", "git_log", "search_web", "get_repo_map",
 }

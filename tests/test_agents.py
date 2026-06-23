@@ -56,7 +56,7 @@ class TestAgentDefinitions:
 
     def test_total_agent_count(self, agent_defs):
         """Should have 10 agents total (6 original + 4 new)."""
-        assert len(agent_defs) == 10, f"Expected 10 agents, got {len(agent_defs)}"
+        assert len(agent_defs) == 11, f"Expected 10 agents, got {len(agent_defs)}"
 
     def test_repo_scout_uses_discovery_tools(self, agent_defs):
         """Repo Scout system prompt mentions discovery tools."""
