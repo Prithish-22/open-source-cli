@@ -73,11 +73,11 @@ class BijuTUI(App):
 
     CSS = """
     Screen {
-        background: #08080f;
+        background: #05050a;
         layout: vertical;
     }
 
-    OutputPanel {
+    OutputPanel { border-right: solid #1a1a3e;
         height: 6fr;
     }
 

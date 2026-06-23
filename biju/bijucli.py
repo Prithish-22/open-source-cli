@@ -60,86 +60,45 @@ RUNNING_AGENTS: dict[str, object] = {}  # name -> Agent object
 
 # --- CATEGORIZED MODEL LIST (verified working on NVIDIA free API) ---
 AGENT_MODELS_CATEGORIZED = {
-    "Flagship": [
-        ("meta/llama-3.3-70b-instruct",                "Llama 3.3 70B — Best overall for coding and logic."),
-        ("mistralai/mistral-large-3-675b-instruct-2512", "Mistral Large 3 675B — Top-tier from Mistral."),
-        ("nvidia/llama-3.3-nemotron-super-49b-v1.5",    "Nemotron Super 49B v1.5 — Great balance of speed and smarts."),
-        ("nvidia/nemotron-3-super-120b-a12b",           "Nemotron 3 Super 120B — NVIDIA's large MoE model."),
-        ("mistralai/mistral-nemotron",                  "Mistral Nemotron — NVIDIA-tuned Mistral."),
-        ("meta/llama-4-maverick-17b-128e-instruct",     "Llama 4 Maverick 17B MoE — Latest Meta model."),
-        ("openai/gpt-oss-120b",                         "GPT-OSS 120B — OpenAI's open-source on NVIDIA."),
+    "Recommended": [
+        ("anthropic/claude-3.5-sonnet", "Claude 3.5 Sonnet — Industry standard for coding."),
+        ("meta/llama-3.3-70b-instruct", "Llama 3.3 70B — Best overall for coding and logic."),
+        ("google/gemini-pro-1.5", "Gemini Pro 1.5 — Massive context window."),
     ],
-    "Code and Reasoning": [
-        ("abacusai/dracarys-llama-3.1-70b-instruct",    "Dracarys Llama 3.1 — Exceptional at coding."),
-        ("openai/gpt-oss-20b",                          "GPT-OSS 20B — Compact OpenAI, good for code."),
-        ("stepfun-ai/step-3.5-flash",                   "Step 3.5 Flash — StepFun's fast reasoning model."),
+    "Premium (OpenRouter)": [
+        ("anthropic/claude-3-opus", "Claude 3 Opus — Deepest reasoning for complex tasks."),
+        ("openai/gpt-4o", "GPT-4o — Fast, reliable high-end intelligence."),
+        ("deepseek/deepseek-chat", "DeepSeek V3 — Exceptional coding value."),
     ],
-    "Fast and Lightweight": [
-        ("meta/llama-3.1-8b-instruct",                  "Llama 3.1 8B — Super fast for quick tasks."),
-        ("meta/llama-3.2-3b-instruct",                  "Llama 3.2 3B — Ultra-lightweight, instant responses."),
-        ("meta/llama-3.2-1b-instruct",                  "Llama 3.2 1B — Smallest Llama, fastest possible."),
-        ("mistralai/mistral-7b-instruct-v0.3",          "Mistral 7B v0.3 — Fast and reliable."),
-        ("mistralai/ministral-14b-instruct-2512",       "Ministral 14B — Mistral's compact model."),
-        ("mistralai/mistral-small-4-119b-2603",         "Mistral Small 4 119B — Compact but powerful."),
-        ("nvidia/nemotron-mini-4b-instruct",            "Nemotron Mini 4B — NVIDIA's tiniest model."),
-        ("nvidia/nemotron-3-nano-30b-a3b",              "Nemotron 3 Nano 30B — Small NVIDIA MoE."),
-        ("nvidia/nvidia-nemotron-nano-9b-v2",           "Nemotron Nano 9B v2 — Latest compact NVIDIA."),
-        ("google/gemma-3n-e4b-it",                      "Gemma 3N E4B — Google's nano model."),
-        ("google/gemma-3n-e2b-it",                      "Gemma 3N E2B — Tiniest Google model."),
-        ("google/gemma-2-2b-it",                        "Gemma 2 2B — Ultra-light Google model."),
-        ("upstage/solar-10.7b-instruct",                "Solar 10.7B — Korean-made, strong for size."),
-        ("stockmark/stockmark-2-100b-instruct",         "Stockmark 2 100B — Japanese enterprise model."),
+    "NVIDIA NIM (Free)": [
+        ("nvidia/llama-3.3-nemotron-super-49b-v1.5", "Nemotron Super 49B — Great balance of speed and smarts."),
+        ("mistralai/mistral-large-3-675b-instruct-2512", "Mistral Large 3 — Top-tier performance."),
+        ("meta/llama-4-maverick-17b-128e-instruct", "Llama 4 Maverick — Latest Meta research model."),
     ],
-    "Third-Party APIs": [
-        ("deepseek-chat",    "DeepSeek V3 (DeepSeek API). Brilliant at coding and math."),
-        ("moonshot-v1-8k",   "Kimi AI (Moonshot API). Great context window."),
-        ("anthropic/claude-3.5-sonnet", "Claude 3.5 Sonnet (OpenRouter). Top-tier coding & reasoning."),
-        ("google/gemini-pro-1.5",       "Gemini Pro 1.5 (OpenRouter). Massive context window."),
-    ],
-    "Vision and Multimodal": [
-        ("meta/llama-3.2-90b-vision-instruct",          "Llama 3.2 90B Vision — Large vision model."),
-        ("meta/llama-3.2-11b-vision-instruct",          "Llama 3.2 11B Vision — Compact vision model."),
+    "Fast & Lightweight": [
+        ("meta/llama-3.1-8b-instruct", "Llama 3.1 8B — Super fast for quick tasks."),
+        ("google/gemma-3n-e4b-it", "Gemma 3N — Compact Google model."),
+        ("mistralai/mistral-7b-instruct-v0.3", "Mistral 7B — Reliable and fast."),
     ],
 }
 
+
 # --- MODEL DISPLAY LABELS (short human-readable names) ---
 MODEL_LABELS: dict[str, str] = {
-    # Flagship
-    "meta/llama-3.3-70b-instruct":                 "Llama 3.3 70B",
+    "anthropic/claude-3.5-sonnet": "Claude 3.5 Sonnet",
+    "anthropic/claude-3-opus": "Claude 3 Opus",
+    "google/gemini-pro-1.5": "Gemini Pro 1.5",
+    "openai/gpt-4o": "GPT-4o",
+    "deepseek/deepseek-chat": "DeepSeek V3",
+    "meta/llama-3.3-70b-instruct": "Llama 3.3 70B",
+    "nvidia/llama-3.3-nemotron-super-49b-v1.5": "Nemotron 49B",
     "mistralai/mistral-large-3-675b-instruct-2512": "Mistral Large 3",
-    "nvidia/llama-3.3-nemotron-super-49b-v1.5":     "Nemotron Super 49B",
-    "nvidia/nemotron-3-super-120b-a12b":            "Nemotron 3 Super 120B",
-    "mistralai/mistral-nemotron":                   "Mistral Nemotron",
-    "meta/llama-4-maverick-17b-128e-instruct":      "Llama 4 Maverick",
-    "openai/gpt-oss-120b":                          "GPT-OSS 120B",
-    # Code & Reasoning
-    "abacusai/dracarys-llama-3.1-70b-instruct":     "Dracarys 70B",
-    "openai/gpt-oss-20b":                           "GPT-OSS 20B",
-    "stepfun-ai/step-3.5-flash":                    "Step 3.5 Flash",
-    # Fast & Lightweight
-    "meta/llama-3.1-8b-instruct":                   "Llama 3.1 8B",
-    "meta/llama-3.2-3b-instruct":                   "Llama 3.2 3B",
-    "meta/llama-3.2-1b-instruct":                   "Llama 3.2 1B",
-    "mistralai/mistral-7b-instruct-v0.3":           "Mistral 7B",
-    "mistralai/ministral-14b-instruct-2512":        "Ministral 14B",
-    "mistralai/mistral-small-4-119b-2603":          "Mistral Small 4",
-    "nvidia/nemotron-mini-4b-instruct":             "Nemotron Mini 4B",
-    "nvidia/nemotron-3-nano-30b-a3b":               "Nemotron Nano 30B",
-    "nvidia/nvidia-nemotron-nano-9b-v2":            "Nemotron Nano 9B",
-    "google/gemma-3n-e4b-it":                       "Gemma 3N E4B",
-    "google/gemma-3n-e2b-it":                       "Gemma 3N E2B",
-    "google/gemma-2-2b-it":                         "Gemma 2 2B",
-    "upstage/solar-10.7b-instruct":                 "Solar 10.7B",
-    "stockmark/stockmark-2-100b-instruct":          "Stockmark 2 100B",
-    # Third-party
-    "deepseek-chat":                                "DeepSeek V3",
-    "moonshot-v1-8k":                               "Kimi (8K)",
-    "anthropic/claude-3.5-sonnet":                  "Claude 3.5 Sonnet",
-    "google/gemini-pro-1.5":                        "Gemini Pro 1.5",
-    # Vision
-    "meta/llama-3.2-90b-vision-instruct":           "Llama 3.2 90B Vision",
-    "meta/llama-3.2-11b-vision-instruct":           "Llama 3.2 11B Vision",
+    "meta/llama-4-maverick-17b-128e-instruct": "Llama 4 Maverick",
+    "meta/llama-3.1-8b-instruct": "Llama 3.1 8B",
+    "google/gemma-3n-e4b-it": "Gemma 3N",
+    "mistralai/mistral-7b-instruct-v0.3": "Mistral 7B",
 }
+
 
 def get_model_label(model_id: str) -> str:
     """Return short human-readable label for a model ID."""

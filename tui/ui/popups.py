@@ -113,6 +113,33 @@ class CommandPaletteModal(ModalScreen[str | None]):
             ]
             self._populate(filtered)
 
+
+    @on(Input.Changed, "#ms-search")
+    def _filter_models(self, event: Input.Changed) -> None:
+        query = event.value.lower().strip()
+        # This is a bit tricky with TabbedContent, so we'll just highlight the first match
+        # or we could filter the lists inside. For simplicity, let's filter the lists.
+        for category, models in AGENT_MODELS_CATEGORIZED.items():
+            safe_cat = category[:8].replace(' ', '-').replace('&','n')
+            try:
+                lv = self.query_one(f"#lv-{safe_cat}", ListView)
+                lv.clear()
+                for model_id, desc in models:
+                    if query in model_id.lower() or query in desc.lower() or query in get_model_label(model_id).lower():
+                        label_text = get_model_label(model_id)
+                        active = "  [bold yellow](active)[/bold yellow]" if model_id == self._current else ""
+                        item = ListItem(
+                            Static(
+                                f"[bold white] {label_text}[/bold white]{active}\n"
+                                f"  [dim] ID: {model_id}[/dim]\n"
+                                f"  [italic #5a5a8a] ❯ {desc}[/italic #5a5a8a]"
+                            )
+                        )
+                        item.data = model_id
+                        lv.append(item)
+            except:
+                pass
+
     def on_key(self, event) -> None:
         if event.key == "enter":
             lv = self.query_one("#cp-list", ListView)
@@ -175,13 +202,23 @@ class ModelSelectorModal(ModalScreen[str | None]):
 
     ModelSelectorModal ListItem {
         color: #c0c0e0;
-        padding: 0 1;
-        height: 3;
+        padding: 0 2;
+        height: 4;
+        border-bottom: solid #1a1a3e;
     }
 
     ModelSelectorModal ListItem.-highlighted {
-        background: #1e1040;
-        color: #cc88ff;
+        background: #1a1a3e;
+        color: #00ccff;
+        text-style: bold;
+    }
+
+    ModelSelectorModal TabbedContent {
+        margin-top: 1;
+    }
+
+    ModelSelectorModal TabPane {
+        padding: 0;
     }
     """
 
@@ -194,11 +231,12 @@ class ModelSelectorModal(ModalScreen[str | None]):
     def compose(self) -> ComposeResult:
         with Static(classes="ms-container"):
             yield Label("✦  Select AI Model", classes="ms-title")
+            yield Input(placeholder="Search models...", id="ms-search")
             yield Label(
                 "[dim]Tab to switch categories · Enter to select · Esc to cancel[/dim]",
                 classes="ms-hint",
             )
-            with TabbedContent():
+            with TabbedContent(id="ms-tabs"):
                 for category, models in AGENT_MODELS_CATEGORIZED.items():
                     with TabPane(category, id=f"tab-{category[:8].replace(' ', '-').replace('&','n')}"):
                         lv = ListView(id=f"lv-{category[:8].replace(' ', '-').replace('&','n')}")
@@ -207,14 +245,41 @@ class ModelSelectorModal(ModalScreen[str | None]):
                             active = "  [bold yellow](active)[/bold yellow]" if model_id == self._current else ""
                             item = ListItem(
                                 Static(
-                                    f"[bold white]{label_text}[/bold white]{active}\n"
-                                    f"  [dim]{model_id}[/dim]\n"
-                                    f"  [dim cyan]↳ {desc}[/dim cyan]"
+                                    f"[bold white] {label_text}[/bold white]{active}\n"
+                                    f"  [dim] ID: {model_id}[/dim]\n"
+                                    f"  [italic #5a5a8a] ❯ {desc}[/italic #5a5a8a]"
                                 )
                             )
                             item.data = model_id  # type: ignore[attr-defined]
                             lv.append(item)
                         yield lv
+
+
+    @on(Input.Changed, "#ms-search")
+    def _filter_models(self, event: Input.Changed) -> None:
+        query = event.value.lower().strip()
+        # This is a bit tricky with TabbedContent, so we'll just highlight the first match
+        # or we could filter the lists inside. For simplicity, let's filter the lists.
+        for category, models in AGENT_MODELS_CATEGORIZED.items():
+            safe_cat = category[:8].replace(' ', '-').replace('&','n')
+            try:
+                lv = self.query_one(f"#lv-{safe_cat}", ListView)
+                lv.clear()
+                for model_id, desc in models:
+                    if query in model_id.lower() or query in desc.lower() or query in get_model_label(model_id).lower():
+                        label_text = get_model_label(model_id)
+                        active = "  [bold yellow](active)[/bold yellow]" if model_id == self._current else ""
+                        item = ListItem(
+                            Static(
+                                f"[bold white] {label_text}[/bold white]{active}\n"
+                                f"  [dim] ID: {model_id}[/dim]\n"
+                                f"  [italic #5a5a8a] ❯ {desc}[/italic #5a5a8a]"
+                            )
+                        )
+                        item.data = model_id
+                        lv.append(item)
+            except:
+                pass
 
     def on_key(self, event) -> None:
         if event.key == "enter":
